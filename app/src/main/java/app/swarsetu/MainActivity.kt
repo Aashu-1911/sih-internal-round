@@ -7,8 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.IntentCompat
-import app.swarsetu.ui.SwarSetuApp
 import app.swarsetu.ui.RouteInbox
+import app.swarsetu.ui.SwarSetuApp
 import app.swarsetu.ui.share.ShareInbox
 import app.swarsetu.ui.share.SharedContent
 import app.swarsetu.ui.theme.SwarSetuTheme

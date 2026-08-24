@@ -177,12 +177,12 @@ import app.swarsetu.ui.camera.PhotoCapture
 import app.swarsetu.ui.components.Avatar
 import app.swarsetu.ui.components.ConnectionStatusRow
 import app.swarsetu.ui.components.GroupAvatar
-import app.swarsetu.ui.components.StitchIndicator
 import app.swarsetu.ui.components.RoomAvatar
+import app.swarsetu.ui.components.StitchIndicator
 import app.swarsetu.ui.image.BlobImage
 import app.swarsetu.ui.openUrl
-import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.preview.PREVIEW_NOW
+import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.share.ShareInbox
 import app.swarsetu.ui.util.rememberCurrentTimeMillis
 import app.swarsetu.ui.voice.VoiceNoteBubble
