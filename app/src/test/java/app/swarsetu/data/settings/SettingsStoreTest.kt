@@ -23,24 +23,22 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsStoreTest {
+    private fun TestScope.newStore(): SettingsStore = SettingsStore(InMemoryDataStore())
 
-    private fun TestScope.newStore(): SettingsStore {
-        return SettingsStore(InMemoryDataStore())
-    }
-
-    private class InMemoryDataStore(initialPreferences: Preferences = emptyPreferences()) : DataStore<Preferences> {
+    private class InMemoryDataStore(
+        initialPreferences: Preferences = emptyPreferences(),
+    ) : DataStore<Preferences> {
         private val _data = MutableStateFlow(initialPreferences)
         override val data: Flow<Preferences> = _data.asStateFlow()
         private val mutex = Mutex()
 
-        override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences {
-            return mutex.withLock {
+        override suspend fun updateData(transform: suspend (t: Preferences) -> Preferences): Preferences =
+            mutex.withLock {
                 val current = _data.value
                 val updated = transform(current)
                 _data.value = updated
                 updated
             }
-        }
     }
 
     @Test

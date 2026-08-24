@@ -61,8 +61,8 @@ import app.swarsetu.mesh.TransportKind
 import app.swarsetu.mesh.TransportStatus
 import app.swarsetu.mesh.spool.SpoolStatus
 import app.swarsetu.mesh.spool.SpoolUrl
-import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.preview.PREVIEW_NOW
+import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.util.compactTimeAgo
 import app.swarsetu.ui.util.rememberCurrentTimeMillis
 import org.koin.androidx.compose.koinViewModel

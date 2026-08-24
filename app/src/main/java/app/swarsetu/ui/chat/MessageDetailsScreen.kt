@@ -51,8 +51,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.swarsetu.R
 import app.swarsetu.data.message.DeliveryPlane
 import app.swarsetu.ui.components.Avatar
-import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.preview.PREVIEW_NOW
+import app.swarsetu.ui.preview.SwarSetuPreview
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
