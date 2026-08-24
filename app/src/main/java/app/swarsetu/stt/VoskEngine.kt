@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.vosk.Model
 import org.vosk.Recognizer
@@ -47,7 +49,7 @@ class VoskEngine(
     private val modelManager: SttModelManager,
 ) : SttEngine {
 
-    private val mutex = kotlinx.coroutines.sync.Mutex()
+    private val mutex = Mutex()
     private var initialized = false
     private var _config: SttConfig? = null
     private var _currentLanguage: SttLanguage? = null
@@ -150,7 +152,7 @@ class VoskEngine(
 
                 // Convert ShortArray to bytes (little-endian 16-bit PCM)
                 val bytes = shortsToBytes(chunk)
-                val isFinal = rec.acceptWaveForm(bytes)
+                val isFinal = rec.acceptWaveForm(bytes, bytes.size)
 
                 val json = if (isFinal) rec.result else rec.partialResult
                 val text = parseVoskText(json)
