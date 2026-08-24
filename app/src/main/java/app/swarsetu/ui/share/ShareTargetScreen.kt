@@ -27,8 +27,8 @@ import app.swarsetu.R
 import app.swarsetu.ui.chatlist.ChatListViewModel
 import app.swarsetu.ui.chatlist.ConversationListItem
 import app.swarsetu.ui.chatlist.ConversationRow
-import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.preview.PREVIEW_NOW
+import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.util.rememberCurrentTimeMillis
 import org.koin.androidx.compose.koinViewModel
 

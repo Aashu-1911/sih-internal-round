@@ -5,8 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import app.swarsetu.data.AttachmentStore
 import app.swarsetu.data.BlobRepository
 import app.swarsetu.data.GroupRepository
-import app.swarsetu.data.MeshDatabase
 import app.swarsetu.data.MeshBlobStore
+import app.swarsetu.data.MeshDatabase
 import app.swarsetu.data.MessageReceiptRepository
 import app.swarsetu.data.MessageRepository
 import app.swarsetu.data.PeerRepository
