@@ -1,0 +1,965 @@
+package app.swarsetu.ui.chat
+
+import android.content.Context
+import android.net.Uri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import app.swarsetu.R
+import app.swarsetu.TextLimits
+import app.swarsetu.data.AttachmentStore
+import app.swarsetu.data.BlobRepository
+import app.swarsetu.data.GallerySaver
+import app.swarsetu.data.GroupRepository
+import app.swarsetu.data.MessageReceiptRepository
+import app.swarsetu.data.MessageRepository
+import app.swarsetu.data.PeerRepository
+import app.swarsetu.data.ReactionRepository
+import app.swarsetu.data.VoiceAudio
+import app.swarsetu.data.group.GroupEntity
+import app.swarsetu.data.group.GroupMembersStore
+import app.swarsetu.data.group.toGroupInfo
+import app.swarsetu.data.message.Conversations
+import app.swarsetu.data.message.DeliveryPlane
+import app.swarsetu.data.message.MentionStore
+import app.swarsetu.data.message.MessageEntity
+import app.swarsetu.data.message.groupTitle
+import app.swarsetu.data.message.receivedPlane
+import app.swarsetu.data.message.replyRef
+import app.swarsetu.data.reaction.ReactionEntity
+import app.swarsetu.data.relay.AttachmentRelay
+import app.swarsetu.data.relay.RelayFacts
+import app.swarsetu.data.relay.RelayPlane
+import app.swarsetu.data.relay.RelayReach
+import app.swarsetu.data.relay.attachmentReach
+import app.swarsetu.data.relay.planeFor
+import app.swarsetu.data.relay.reachFor
+import app.swarsetu.data.settings.SettingsStore
+import app.swarsetu.identity.Identity
+import app.swarsetu.identity.displayNameFor
+import app.swarsetu.mesh.MeshController
+import app.swarsetu.mesh.TransportHealth
+import app.swarsetu.mesh.crypto.AttachmentCrypto
+import app.swarsetu.mesh.crypto.b64d
+import app.swarsetu.mesh.protocol.GroupInfo
+import app.swarsetu.mesh.protocol.Mention
+import app.swarsetu.mesh.protocol.ReplyRef
+import app.swarsetu.moderation.ImageScreeningService
+import app.swarsetu.notifications.Notifier
+import app.swarsetu.ui.voice.VoicePlayer
+import app.swarsetu.ui.voice.VoiceRecorder
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+
+data class ChatRow(
+    val id: String,
+    val body: String,
+    val mine: Boolean,
+    val senderName: String,
+    val senderNodeId: String,
+    // A non-[MessageEntity.KIND_NORMAL] row is a status notice (e.g. [MessageEntity.KIND_MEMBER_LEFT]),
+    // rendered as a centered line using [senderName] instead of a chat bubble.
+    val kind: Int = MessageEntity.KIND_NORMAL,
+    val avatarHash: String?,
+    val sentAt: Long,
+    val received: Boolean,
+    // The plane the receipt that flipped [received] arrived on; [DeliveryPlane.Internet] paints a globe
+    // beside the tick. Only meaningful on our own delivered messages — see [MessageEntity].
+    val deliveredVia: DeliveryPlane = DeliveryPlane.Unknown,
+    // How many of the group's other members have acked this message, out of how many there are. Both 0
+    // outside a group send of ours — and [deliveredCount] is 0 for a message acked before this device
+    // recorded ackers, which is what makes the tick fall back to a bare "Delivered" (see [deliveryLabel]).
+    val deliveredCount: Int = 0,
+    val recipientTotal: Int = 0,
+    // True when the on-device text moderator flagged this message's body; the bubble collapses it
+    // behind a tap-to-reveal instead of showing the text outright.
+    val moderationFlagged: Boolean = false,
+    val attachmentHash: String? = null,
+    val attachmentMime: String? = null,
+    // Base64 key for an end-to-end-encrypted attachment (null for plaintext/broadcast attachments);
+    // passed to the image loader to decrypt the ciphertext blob before decoding.
+    val attachmentKey: String? = null,
+    // True once the attachment blob is present locally; false while it's still being pulled (the bubble
+    // shows a loading placeholder). Only meaningful when [attachmentHash] is non-null.
+    val attachmentReady: Boolean = false,
+    // True when on-device screening flagged the attachment as explicit; the bubble blurs it behind a
+    // tap-to-view. Only meaningful when [attachmentHash] is non-null.
+    val attachmentFlagged: Boolean = false,
+    // Whether this attachment can cross the Internet-relay plane. Anything but [AttachmentRelay.Silent]
+    // or [AttachmentRelay.Relayable] marks the bubble "nearby only" — a statement about *reach*, never
+    // about delivery, which the ✓/✓✓ tick keeps to itself. Set only for our own sends; see the mapping
+    // in [ChatViewModel].
+    val attachmentRelay: AttachmentRelay = AttachmentRelay.Silent,
+    // A voice note's playing time and waveform bars, both derived locally from the audio (never carried on
+    // the wire — see [app.swarsetu.data.VoiceAudio]). Null until the blob has arrived and been
+    // described, which is why the bubble can render a length-less placeholder in the meantime.
+    //
+    // The bars stay in their stored Base64 form here rather than a decoded FloatArray: this is a data class,
+    // and an array field would give it reference-identity equality, so every re-emission of the message list
+    // would recompose every voice bubble on screen. The bubble decodes once, under `remember`.
+    val voiceDurationMs: Int? = null,
+    val voicePeaks: String? = null,
+    val mentions: List<Mention> = emptyList(),
+    val reactions: List<ReactionSummary> = emptyList(),
+    // The message this row quotes (Signal-style reply), or null when it isn't a reply. Denormalized so the
+    // quote renders even if the quoted original isn't in this thread. See [MessageEntity.replyRef].
+    val replyTo: ReplyRef? = null,
+)
+
+/**
+ * One emoji's tally on a message: the [emoji], how many people reacted with it ([count]), and whether
+ * the local user is one of them ([mine], to highlight the chip). Distinct emoji become distinct chips;
+ * the UI shows the count only when it exceeds 1.
+ */
+data class ReactionSummary(
+    val emoji: String,
+    val count: Int,
+    val mine: Boolean,
+)
+
+/** A person who can be "@"-mentioned: someone we've received a message from, resolved to a name. */
+data class MentionCandidate(
+    val nodeId: String,
+    val displayName: String,
+    val avatarHash: String?,
+)
+
+/** A peer currently shown as "typing" in this thread, resolved to a display [name] + [avatarHash] for the
+ *  animated indicator row. */
+data class TypingPeer(
+    val nodeId: String,
+    val name: String,
+    val avatarHash: String?,
+)
+
+data class ChatUiState(
+    val rows: List<ChatRow> = emptyList(),
+    val neighborCount: Int = 0,
+    // Radio health, so the connection header can distinguish "nobody nearby" from radios off/seized.
+    val transportHealth: TransportHealth = TransportHealth.Healthy,
+    val myNodeId: String = "",
+    val mentionCandidates: List<MentionCandidate> = emptyList(),
+    // Conversation header: the room ([isRoom] true) or a 1:1 DM with [title]/[avatarHash] of the peer.
+    val isRoom: Boolean = true,
+    val title: String = "",
+    val avatarHash: String? = null,
+    // True when this DM's peer is blocked, so the header offers "Unblock" instead of "Block".
+    val isBlocked: Boolean = false,
+    // True when this DM's peer has been key-verified (safety number / QR), to show a verified badge.
+    val verified: Boolean = false,
+    // True when this thread is a group chat; [memberCount] sizes the header subtitle. The header then
+    // offers "Rename group" / "Leave group" instead of Block/Unblock.
+    val isGroup: Boolean = false,
+    val memberCount: Int = 0,
+    // Peers currently typing in this thread, shown as an animated indicator above the input. Ephemeral
+    // (TTL'd in the mesh layer) and best-effort; empty most of the time.
+    val typingPeers: List<TypingPeer> = emptyList(),
+    // Whether the Internet-relay plane covers this thread. Only [RelayReach.Room] and
+    // [RelayReach.Pending] render anything — coverage is the happy path, and an outage is transient and
+    // stays quiet. See [reachFor].
+    val relayReach: RelayReach = RelayReach.Silent,
+    // The Internet plane's whole-device state, for the connection header. Coarser than [relayReach] and
+    // about a different thing: whether the plane is up at all, not whether it covers this thread.
+    val relayPlane: RelayPlane = RelayPlane.Off,
+)
+
+class ChatViewModel(
+    private val conversationId: String,
+    private val messages: MessageRepository,
+    private val groups: GroupRepository,
+    private val peers: PeerRepository,
+    private val reactions: ReactionRepository,
+    private val receipts: MessageReceiptRepository,
+    private val meshManager: MeshController,
+    private val identity: Identity,
+    private val settings: SettingsStore,
+    private val notifier: Notifier,
+    private val attachments: AttachmentStore,
+    private val blobs: BlobRepository,
+    private val imageScreening: ImageScreeningService,
+    private val gallerySaver: GallerySaver,
+    // App-scoped on purpose: any number of voice-note bubbles can be on screen and only one may sound, so
+    // arbitration can't live in a per-screen ViewModel.
+    private val voicePlayer: VoicePlayer,
+    // The facts flow, not the repository that produces it. Narrow on purpose: this ViewModel needs a
+    // Flow<RelayFacts> and nothing else, and the production flow is an infinite poller — under a test's
+    // virtual clock its `delay` is instant, so a test that drives this VM with `advanceUntilIdle()` could
+    // never reach idle. Taking the flow lets a test supply a finite one.
+    private val relayFacts: Flow<RelayFacts>,
+    private val context: Context,
+) : ViewModel() {
+    /** This thread is the broadcast room (vs a 1:1 DM keyed by the peer's node id). */
+    private val isRoom = conversationId == Conversations.NEARBY
+
+    private val myNodeId = MutableStateFlow<String?>(null)
+
+    /** True while the chat is on screen; drives the read watermark below. */
+    private val chatForeground = MutableStateFlow(false)
+
+    /** Image staged in the input bar, ready to send with the next message (null when none). */
+    private val _pendingAttachment = MutableStateFlow<AttachmentStore.Ingested?>(null)
+    val pendingAttachment: StateFlow<AttachmentStore.Ingested?> = _pendingAttachment.asStateFlow()
+
+    /**
+     * An image flagged as explicit by on-device screening, awaiting the user's "send anyway?"
+     * confirmation. Sending such images is allowed but discouraged: it's staged only once confirmed.
+     */
+    private val _confirmAttachment = MutableStateFlow<AttachmentStore.Ingested?>(null)
+    val confirmAttachment: StateFlow<AttachmentStore.Ingested?> = _confirmAttachment.asStateFlow()
+
+    /**
+     * Live state of an in-progress recording, or null when the mic is idle. [elapsedMs] drives the counter,
+     * [amplitude] the level meter, and [locked] distinguishes hands-free recording (the user slid up) from
+     * hold-to-talk, where letting go ends it.
+     */
+    data class VoiceRecording(
+        val elapsedMs: Long,
+        val amplitude: Float,
+        val locked: Boolean,
+    )
+
+    private val _voiceRecording = MutableStateFlow<VoiceRecording?>(null)
+    val voiceRecording: StateFlow<VoiceRecording?> = _voiceRecording.asStateFlow()
+
+    /** Playback state of whichever voice note is loaded app-wide; a bubble matches it against its own hash. */
+    val voicePlayback: StateFlow<VoicePlayer.Playback?> = voicePlayer.nowPlaying
+
+    // Built lazily so a chat that never records never opens a recorder, and torn down in onCleared: the
+    // microphone is exclusive, and leaking it would block every other app until this process died.
+    private val recorder by lazy { VoiceRecorder(context, viewModelScope) }
+
+    // Ticks the recording UI. Cancelled by every path that ends a recording.
+    private var recordingTicker: Job? = null
+
+    /** One-shot UI messages (a string res id), surfaced as toasts — e.g. the result of saving an image. */
+    private val _events = MutableSharedFlow<Int>(extraBufferCapacity = 1)
+    val events: SharedFlow<Int> = _events.asSharedFlow()
+
+    /** Emitted once the DM's peer is blocked, so the screen can close (the thread is now hidden). */
+    private val _closeChat = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val closeChat: SharedFlow<Unit> = _closeChat.asSharedFlow()
+
+    /**
+     * Emitted after a message is accepted and sent, so the screen clears its input field/mentions. The
+     * screen no longer clears optimistically: if [send] blocks the text for abuse, nothing is emitted and
+     * the user keeps their draft to edit.
+     */
+    private val _clearInput = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val clearInput: SharedFlow<Unit> = _clearInput.asSharedFlow()
+
+    init {
+        viewModelScope.launch { myNodeId.value = identity.nodeId() }
+        // Advance this conversation's read watermark while the chat is on screen: on every stream
+        // emission (so messages arriving while you read don't reappear as unread), stamp newest sentAt.
+        viewModelScope.launch {
+            combine(chatForeground, messages.observeMessages(conversationId)) { foreground, msgs ->
+                if (foreground) msgs.maxOfOrNull { it.sentAt } else null
+            }.distinctUntilChanged().collect { watermark ->
+                if (watermark != null) settings.setLastReadAt(conversationId, watermark)
+            }
+        }
+    }
+
+    // Bundles the four message-related streams so the outer combine below stays at the 5-flow typed
+    // overload (a 6th flow falls back to unchecked Array<*> casts). Blocked senders' messages are
+    // filtered out here, so they also drop out of rows and mention candidates. Observing the blob
+    // sizes here is what flips an attachment from "loading" to shown when its bytes arrive — and, since
+    // the same rows carry the byte length, what tells the UI whether those bytes can cross a relay.
+    private data class MessagesBundle(
+        val messages: List<MessageEntity>,
+        val reactions: List<ReactionEntity>,
+        val blocked: Set<String>,
+        val blobSizes: Map<String, Int>,
+        val flaggedHashes: Set<String>,
+        val hideSensitiveContent: Boolean,
+        val group: GroupEntity?,
+        // messageId -> how many current roster members have acked it. Empty outside a group.
+        val deliveredCounts: Map<String, Int>,
+    )
+
+    // Held blob sizes + moderation-flagged hashes plus the content-filtering setting, combined upstream
+    // so the main bundle stays at the typed 5-flow combine overload. The setting only gates receive-side
+    // *hiding* (the chat blur + toxic-text collapse below), so toggling it reactively reveals/hides
+    // already-received content without re-screening; what you can send is enforced elsewhere regardless.
+    private val blobState =
+        combine(
+            blobs.observeSizes(),
+            imageScreening.observeFlaggedHashes(),
+            settings.contentFilteringEnabled,
+        ) { sizes, flagged, hideSensitive ->
+            Triple(sizes, flagged.toSet(), hideSensitive)
+        }
+
+    // The group row paired with "how many members have acked each message", re-subscribed whenever the
+    // roster changes (a departure changes the denominator AND which receipts count). Not a group ⇒ no
+    // roster ⇒ no counts, and the tick keeps its plain wording.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val groupDelivery: Flow<Pair<GroupEntity?, Map<String, Int>>> =
+        groups
+            .observeGroup(conversationId)
+            .distinctUntilChanged()
+            .flatMapLatest { group ->
+                val roster = group?.let { GroupMembersStore.decode(it.members) }.orEmpty()
+                if (roster.isEmpty()) {
+                    flowOf(group to emptyMap())
+                } else {
+                    receipts.observeDeliveredCounts(conversationId, roster).map { group to it }
+                }
+            }
+
+    private val messagesWithReactions =
+        combine(
+            messages.observeMessages(conversationId),
+            reactions.observeReactions(),
+            settings.blockedNodeIds,
+            blobState,
+            groupDelivery,
+        ) { msgs, reacts, blocked, (sizes, flagged, hideSensitive), (group, delivered) ->
+            MessagesBundle(
+                msgs.filter { it.senderId !in blocked },
+                reacts,
+                blocked,
+                sizes,
+                flagged,
+                hideSensitive,
+                group,
+                delivered,
+            )
+        }
+
+    // Neighbor count + radio health + the "who's typing" map + Internet-relay reach folded into one
+    // source so the main state combine stays within its five-flow arity.
+    private data class MeshStatus(
+        val neighborCount: Int,
+        val transportHealth: TransportHealth,
+        val typing: Map<String, Set<String>>,
+        val relay: RelayFacts,
+    )
+
+    private val meshStatus =
+        combine(
+            meshManager.neighborCount,
+            meshManager.transportHealth,
+            meshManager.typing,
+            relayFacts,
+        ) { count, health, typing, relay -> MeshStatus(count, health, typing, relay) }
+
+    val state: StateFlow<ChatUiState> =
+        combine(
+            messagesWithReactions,
+            peers.observePeers(),
+            meshStatus,
+            myNodeId,
+            settings.displayName,
+        ) { bundle, peerList, mesh, me, myName ->
+            val count = mesh.neighborCount
+            val health = mesh.transportHealth
+            val typingMap = mesh.typing
+            val relay = mesh.relay
+            val msgs = bundle.messages
+            val reacts = bundle.reactions
+            val blocked = bundle.blocked
+            val blobSizes = bundle.blobSizes
+            val flaggedHashes = bundle.flaggedHashes
+            val hideSensitive = bundle.hideSensitiveContent
+            val group = bundle.group
+            val deliveredCounts = bundle.deliveredCounts
+            val isGroup = group != null
+            val members = group?.let { GroupMembersStore.decode(it.members) }.orEmpty()
+            val peersByNode = peerList.associateBy { it.nodeId }
+            // Group once, then tally per emoji within each message's bucket. Orphan reactions (no matching
+            // message yet) simply never produce a row until their message arrives.
+            val reactionsByMessage = reacts.groupBy { it.messageId }
+            val rows =
+                msgs.map { m ->
+                    val mine = m.senderId == me
+                    val name =
+                        when {
+                            mine -> myName.ifBlank { context.getString(R.string.chat_self_name) }
+                            else -> displayNameFor(peersByNode[m.senderId]?.name, m.senderId)
+                        }
+                    val tallies =
+                        reactionsByMessage[m.id]
+                            .orEmpty()
+                            .groupBy { it.emoji }
+                            .mapNotNull { (emoji, group) ->
+                                // emoji is non-null in the stream (tombstones are filtered in the DAO); guard anyway.
+                                if (emoji == null) {
+                                    null
+                                } else {
+                                    ReactionSummary(emoji, group.size, group.any { it.reactorNodeId == me })
+                                }
+                            }
+                    val heldBytes = m.attachmentHash?.let { blobSizes[it] }
+                    ChatRow(
+                        id = m.id,
+                        body = m.body,
+                        mine = mine,
+                        senderName = name,
+                        senderNodeId = m.senderId,
+                        kind = m.kind,
+                        avatarHash = peersByNode[m.senderId]?.avatarHash,
+                        sentAt = m.sentAt,
+                        received = m.received,
+                        deliveredVia = m.receivedPlane,
+                        // Only our own group sends have a "who has it" answer; the roster excludes us,
+                        // since we never ack ourselves (the details screen's rule, kept identical here).
+                        deliveredCount = if (mine && isGroup) deliveredCounts[m.id] ?: 0 else 0,
+                        recipientTotal = if (mine && isGroup) members.count { it != me } else 0,
+                        moderationFlagged = hideSensitive && m.moderation == MessageEntity.MODERATION_TEXT_FLAGGED,
+                        attachmentHash = m.attachmentHash,
+                        attachmentMime = m.attachmentMime,
+                        attachmentKey = m.attachmentKey,
+                        voiceDurationMs = m.voiceDurationMs,
+                        voicePeaks = m.voicePeaks,
+                        attachmentReady = heldBytes != null,
+                        attachmentFlagged = hideSensitive && m.attachmentHash != null && m.attachmentHash in flaggedHashes,
+                        // Outbound reach only: a received attachment has already arrived, so telling its
+                        // reader it is "nearby only" would describe a journey that is over. Unknown size
+                        // (bytes reclaimed by retention) falls through to Silent rather than guessing.
+                        attachmentRelay =
+                            if (mine && heldBytes != null) {
+                                attachmentReach(conversationId, heldBytes, relay)
+                            } else {
+                                AttachmentRelay.Silent
+                            },
+                        mentions = MentionStore.decode(m.mentions),
+                        reactions = tallies,
+                        replyTo = m.replyRef(),
+                    )
+                }
+            // Autocomplete candidates: everyone we've received a message from, plus a group's roster (so
+            // @-mentions work in a fresh group before anyone has spoken), resolved to a display name.
+            val candidates =
+                (msgs.map { it.senderId } + members)
+                    .asSequence()
+                    .filter { it != me }
+                    .distinct()
+                    .map { id ->
+                        MentionCandidate(
+                            nodeId = id,
+                            displayName = displayNameFor(peersByNode[id]?.name, id),
+                            avatarHash = peersByNode[id]?.avatarHash,
+                        )
+                    }.sortedBy { it.displayName.lowercase() }
+                    .toList()
+            // Peers typing in THIS thread, resolved for the indicator row. Skip ourselves (defensive — our
+            // own cue never lands here) and blocked senders (as their messages are already filtered out).
+            val typingPeers =
+                typingMap[conversationId]
+                    .orEmpty()
+                    .asSequence()
+                    .filter { it != me && it !in blocked }
+                    .map { id -> TypingPeer(id, displayNameFor(peersByNode[id]?.name, id), peersByNode[id]?.avatarHash) }
+                    .sortedBy { it.name.lowercase() }
+                    .toList()
+            ChatUiState(
+                rows = rows,
+                neighborCount = count,
+                transportHealth = health,
+                myNodeId = me.orEmpty(),
+                mentionCandidates = candidates,
+                isRoom = isRoom,
+                title =
+                    when {
+                        group != null -> {
+                            groupTitle(
+                                storedName = group.name,
+                                memberIds = members,
+                                selfId = me,
+                                fallback = context.getString(R.string.group_unnamed),
+                            ) { id -> displayNameFor(peersByNode[id]?.name, id) }
+                        }
+
+                        isRoom -> {
+                            context.getString(R.string.nearby_title)
+                        }
+
+                        else -> {
+                            displayNameFor(peersByNode[conversationId]?.name, conversationId)
+                        }
+                    },
+                // The room uses a glyph; a group shows its photo (or the glyph when unset); a DM the peer avatar.
+                avatarHash =
+                    when {
+                        isRoom -> null
+                        else -> group?.photoHash ?: peersByNode[conversationId]?.avatarHash
+                    },
+                isBlocked = !isRoom && !isGroup && conversationId in blocked,
+                verified = !isRoom && !isGroup && peersByNode[conversationId]?.verified == true,
+                isGroup = isGroup,
+                memberCount = members.size,
+                typingPeers = typingPeers,
+                relayReach = reachFor(conversationId, relay),
+                relayPlane = planeFor(relay),
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isRoom = isRoom))
+
+    /**
+     * Reach for the image staged in the composer, so the user learns a photo is nearby-only *before*
+     * sending rather than after. Its own flow rather than a [ChatUiState] field: the staged attachment is
+     * not part of the main combine (which is already at the typed five-flow limit), and the composer is
+     * the only consumer.
+     *
+     * The size comes from the blob table, not from [AttachmentStore.Ingested] — ingestion has already
+     * stored the bytes by the time an image is staged, so the row is there to be read.
+     */
+    val stagedAttachmentRelay: StateFlow<AttachmentRelay> =
+        combine(
+            _pendingAttachment,
+            blobs.observeSizes(),
+            relayFacts,
+        ) { staged, sizes, relay ->
+            val bytes = staged?.hash?.let { sizes[it] } ?: return@combine AttachmentRelay.Silent
+            attachmentReach(conversationId, bytes, relay)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentRelay.Silent)
+
+    /**
+     * Double-submit guard: true from the moment a send is accepted until its input is cleared (success)
+     * or it's rejected (blocked). [send] is a suspending round-trip (seal-to-recipients + DB write +
+     * enqueue), and the input isn't cleared until it returns, so without this a rapid burst of taps on
+     * the always-enabled send button would each read the same still-present draft and flood duplicates.
+     * Main-thread-confined: touched only from [send] and [onInputCleared], both on the main dispatcher.
+     *
+     * Exposed as [isSending] so the chat screen can show a "working…" spinner in the send button while a
+     * send is in flight — on a cold start the first send blocks on the one-time toxicity-model load
+     * (~16 MB TFLite + tokenizer + Interpreter), which otherwise looks like a frozen app. Backing the
+     * guard and the UI signal with the same value keeps them from ever diverging.
+     */
+    private val _isSending = MutableStateFlow(false)
+    val isSending: StateFlow<Boolean> = _isSending.asStateFlow()
+
+    fun send(
+        text: String,
+        mentions: List<Mention> = emptyList(),
+        replyTo: ReplyRef? = null,
+    ) {
+        val trimmed = text.trim().take(TextLimits.MESSAGE)
+        val attachment = _pendingAttachment.value
+        if (trimmed.isEmpty() && attachment == null) return
+        // Ignore re-entrant taps while a send is in flight, and — on success — until the field is
+        // actually cleared, so a tap landing in the gap between sendChat returning and clearText running
+        // can't re-send the same draft. Released in the blocked branch and in onInputCleared().
+        if (_isSending.value) return
+        _isSending.value = true
+        viewModelScope.launch {
+            // Deferred release: an accepted send keeps the guard held until the field is actually
+            // cleared (onInputCleared); the finally frees it on a block or an unexpected send-path throw
+            // so the guard can never stick and freeze the input.
+            var accepted = false
+            try {
+                // Normalize a self-quote's snapshotted author before it goes on the wire (see the helper).
+                val outgoingReply = normalizeSelfAuthor(replyTo)
+                // Re-read the group at send time so it's never misrouted as a DM in a startup race, and so
+                // a pending rename rides this message (its GroupInfo.name converges last-writer-wins).
+                val group = if (isRoom) null else groups.find(conversationId)
+                val sent =
+                    if (group != null) {
+                        meshManager.sendChat(
+                            trimmed,
+                            attachment,
+                            mentions,
+                            recipientId = null,
+                            group = group.toGroupInfo(),
+                            replyTo = outgoingReply,
+                        )
+                    } else {
+                        // Broadcast room -> no recipient; a DM thread is keyed by the peer's node id.
+                        val recipientId = if (isRoom) null else conversationId
+                        meshManager.sendChat(trimmed, attachment, mentions, recipientId, replyTo = outgoingReply)
+                    }
+                // MeshManager applies block-on-send. Clear the input/attachment only once a message is
+                // accepted; a blocked message keeps the draft and surfaces a toast so the user can edit.
+                if (sent) {
+                    accepted = true
+                    // The voice description is deliberately NOT written here. It rides on the staged
+                    // [AttachmentStore.Ingested] and is written by `MeshManager.sendChat` against the hash
+                    // the row actually holds — for a DM or group that is the attachment's *ciphertext*
+                    // hash, so writing it here against the plaintext hash staged above would silently
+                    // update no rows at all.
+                    _pendingAttachment.value = null
+                    // Guard stays held until the screen reports the field cleared (onInputCleared), so no
+                    // duplicate can slip through the tryEmit -> collect -> clearText hop.
+                    _clearInput.tryEmit(Unit)
+                } else {
+                    _events.tryEmit(R.string.moderation_text_blocked)
+                }
+            } finally {
+                if (!accepted) _isSending.value = false
+            }
+        }
+    }
+
+    /**
+     * Normalizes a quoted-reply's author snapshot before it goes on the wire: a reply quoting *our own*
+     * message must carry the display name a peer resolves for us — never the local "You" self-label — so
+     * every recipient shows our real name and only swaps in "You" when they are themselves the quoted
+     * author. A reply to anyone else is returned unchanged (its snapshot is already a peer-resolved name).
+     */
+    private suspend fun normalizeSelfAuthor(replyTo: ReplyRef?): ReplyRef? {
+        val me = identity.nodeId()
+        return replyTo
+            ?.takeIf { it.authorId == me }
+            ?.copy(author = displayNameFor(settings.displayName.first(), me))
+            ?: replyTo
+    }
+
+    /**
+     * The screen finished clearing the input after an accepted send; release the double-submit guard.
+     * Deferred to here (rather than the success branch above) so the guard covers the window between
+     * [send] returning and the field visually clearing — see [isSending].
+     */
+    fun onInputCleared() {
+        _isSending.value = false
+    }
+
+    /**
+     * Toggles the local user's [emoji] reaction on [messageId] (add / replace / remove) and floods it.
+     * Passes the thread context along, resolved the same way [send] does (re-read at send time), so a
+     * DM/group reaction rides sealed where the conversation supports it — the manager never re-derives
+     * the context from the message row.
+     */
+    fun react(
+        messageId: String,
+        emoji: String,
+    ) {
+        viewModelScope.launch {
+            val group = if (isRoom) null else groups.find(conversationId)?.toGroupInfo()
+            val recipientId = if (isRoom || group != null) null else conversationId
+            meshManager.sendReaction(messageId, emoji, recipientId, group)
+        }
+    }
+
+    /**
+     * Removes [messageId] from this device only — its row, its reactions, its per-recipient delivery
+     * rows, and (if no other message still references it) its content-addressed attachment blob. Sends
+     * nothing over the mesh.
+     */
+    fun deleteMessage(messageId: String) {
+        val hash =
+            state.value.rows
+                .firstOrNull { it.id == messageId }
+                ?.attachmentHash
+        viewModelScope.launch {
+            messages.delete(messageId)
+            reactions.deleteForMessage(messageId)
+            receipts.deleteForMessage(messageId)
+            blobs.deleteIfUnreferenced(hash)
+            _events.tryEmit(R.string.chat_message_deleted)
+        }
+    }
+
+    /** Blocks [nodeId] locally: their messages/reactions stop being stored, shown, and notified. */
+    fun block(nodeId: String) {
+        viewModelScope.launch {
+            settings.block(nodeId, peers.find(nodeId)?.deviceTag)
+            _events.tryEmit(R.string.chat_user_blocked)
+            // Blocking the peer of a DM empties this thread (and hides it from the list), so close the
+            // now-confusing screen. Emitted only after the block persists, so navigating away can't
+            // cancel the write. Blocking from the Nearby room leaves the room open.
+            if (!isRoom) _closeChat.tryEmit(Unit)
+        }
+    }
+
+    /** Unblocks [nodeId], restoring their (never-deleted) message history. */
+    fun unblock(nodeId: String) {
+        viewModelScope.launch {
+            settings.unblock(nodeId, peers.find(nodeId)?.deviceTag)
+            _events.tryEmit(R.string.chat_user_unblocked)
+        }
+    }
+
+    /**
+     * Ingests a picked or keyboard-inserted image and stages it in the input bar. A decode failure is
+     * silently ignored, as before — the picture is still sitting in the picker, so there is nothing to
+     * explain.
+     */
+    fun attach(uri: Uri) {
+        viewModelScope.launch { stage(attachments.ingest(uri), notifyFailure = false) }
+    }
+
+    /**
+     * Ingests a photo just taken with the in-app camera ([app.swarsetu.ui.camera.PhotoCapture]) and
+     * stages it exactly like a picked one. The bytes arrive in memory and are never written to disk.
+     *
+     * Unlike [attach] this **does** surface a failure: the shot exists nowhere else, so silently
+     * dropping it would look like the camera simply did nothing.
+     */
+    fun attachCaptured(jpeg: ByteArray) {
+        viewModelScope.launch { stage(attachments.ingest(jpeg, "image/jpeg"), notifyFailure = true) }
+    }
+
+    /**
+     * Stages an ingested image, or handles its verdict. A picture flagged as explicit by on-device
+     * screening is handled by context: the public Nearby room **blocks** it outright (no confirmation
+     * bypass), while DMs/groups route it to [confirmAttachment] for a "send anyway?" confirmation.
+     */
+    private suspend fun stage(
+        result: AttachmentStore.IngestResult,
+        notifyFailure: Boolean,
+    ) {
+        when (result) {
+            is AttachmentStore.IngestResult.Success -> {
+                when {
+                    !result.flagged -> {
+                        _pendingAttachment.value = result.ingested
+                    }
+
+                    isRoom -> {
+                        // Hard block in the broadcast room; drop the ingested-but-unsent blob.
+                        blobs.deleteIfUnreferenced(result.ingested.hash)
+                        _events.tryEmit(R.string.moderation_image_blocked)
+                    }
+
+                    else -> {
+                        _confirmAttachment.value = result.ingested
+                    }
+                }
+            }
+
+            AttachmentStore.IngestResult.Failed -> {
+                if (notifyFailure) _events.tryEmit(R.string.chat_image_capture_failed)
+            }
+        }
+    }
+
+    /**
+     * Starts recording a voice note. Returns false when the microphone couldn't be opened — held by a call
+     * or another app — so the composer can say so rather than showing a recorder that captures silence. The
+     * caller has already cleared the `RECORD_AUDIO` gate.
+     *
+     * [locked] starts a hands-free recording directly (the accessibility tap path); hold-to-talk starts
+     * unlocked and flips via [lockVoiceRecording] when the user slides up.
+     */
+    fun startVoiceRecording(locked: Boolean = false): Boolean {
+        if (_voiceRecording.value != null) return false
+        if (!recorder.start()) {
+            _events.tryEmit(R.string.chat_voice_record_failed)
+            return false
+        }
+        _voiceRecording.value = VoiceRecording(elapsedMs = 0L, amplitude = 0f, locked = locked)
+        recordingTicker?.cancel()
+        recordingTicker =
+            viewModelScope.launch {
+                while (true) {
+                    delay(VOICE_TICK_MS)
+                    val elapsed = recorder.elapsedMs()
+                    // Stop cleanly at the cap rather than letting the recorder run on: the note is still
+                    // staged, so a user who talks past five minutes keeps what they said instead of losing it.
+                    if (elapsed >= VoiceRecorder.MAX_DURATION_MS) {
+                        stopVoiceRecordingAndStage()
+                        return@launch
+                    }
+                    _voiceRecording.value =
+                        _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = recorder.amplitude())
+                }
+            }
+        return true
+    }
+
+    /** Switches an in-progress hold-to-talk recording to hands-free; the user slid up off the button. */
+    fun lockVoiceRecording() {
+        _voiceRecording.value = _voiceRecording.value?.copy(locked = true)
+    }
+
+    /**
+     * Ends the recording and stages it for review, exactly as a picked photo is staged — so the user hears
+     * it back before sending, and can still add text or a reply quote to it.
+     *
+     * A recording too short to have said anything is discarded rather than staged: releasing the button by
+     * accident is common, and an unsendable 0.2 s blip in the composer is worse than nothing happening.
+     */
+    fun stopVoiceRecordingAndStage() {
+        if (_voiceRecording.value == null) return
+        recordingTicker?.cancel()
+        recordingTicker = null
+        _voiceRecording.value = null
+        // Decide on the *elapsed time* before touching the recorder. A press too short to have encoded a
+        // frame is the common fumble, and taking it through stop() is what made it look like a hardware
+        // failure: MediaRecorder.stop() throws a bare RuntimeException when the encoder produced nothing,
+        // so a tap logged a scary warning and toasted "couldn't record". Cancelling instead resets the
+        // recorder cleanly and says the one useful thing — hold the button.
+        val tooShort = recorder.elapsedMs() < MIN_VOICE_MS
+        if (tooShort) {
+            recorder.cancel()
+            _events.tryEmit(R.string.chat_voice_too_short)
+            return
+        }
+        viewModelScope.launch {
+            val bytes = recorder.stop()
+            if (bytes == null) {
+                _events.tryEmit(R.string.chat_voice_record_failed)
+                return@launch
+            }
+            // Second gate, on the bytes rather than the clock: the encoder can lag the button, so a press
+            // held just past the threshold may still have produced less audio than it looked like.
+            // durationMs is pure header arithmetic, so this costs nothing.
+            if ((VoiceAudio.durationMs(bytes) ?: 0) < MIN_VOICE_MS) {
+                _events.tryEmit(R.string.chat_voice_too_short)
+                return@launch
+            }
+            when (val result = attachments.ingestVoice(bytes)) {
+                is AttachmentStore.IngestResult.Success -> {
+                    // The description rides on the staged attachment itself: the review row reads it from
+                    // there, and MeshManager writes it onto the row it creates, against the (possibly
+                    // ciphertext) hash that row will actually hold.
+                    _pendingAttachment.value = result.ingested
+                }
+
+                AttachmentStore.IngestResult.Failed -> {
+                    _events.tryEmit(R.string.chat_voice_record_failed)
+                }
+            }
+        }
+    }
+
+    /** Abandons an in-progress recording — the user slid to cancel. Nothing is ingested, so there's no GC. */
+    fun cancelVoiceRecording() {
+        recordingTicker?.cancel()
+        recordingTicker = null
+        _voiceRecording.value = null
+        recorder.cancel()
+    }
+
+    /** Plays (or pauses, when it's already the loaded note) the voice note stored under [hash]. */
+    fun playVoice(
+        hash: String,
+        key: String?,
+    ) = voicePlayer.play(hash, key)
+
+    /** Scrubs the loaded voice note to [positionMs]; ignored unless [hash] is the note that is loaded. */
+    fun seekVoice(
+        hash: String,
+        positionMs: Int,
+    ) = voicePlayer.seek(hash, positionMs)
+
+    /** The user confirmed the explicit-image warning: stage the (already-ingested) image for sending. */
+    fun confirmFlaggedAttachment() {
+        _pendingAttachment.value = _confirmAttachment.value ?: return
+        _confirmAttachment.value = null
+    }
+
+    /** The user declined the explicit-image warning: drop it and GC the ingested-but-unsent blob. */
+    fun dismissFlaggedAttachment() {
+        val pending = _confirmAttachment.value ?: return
+        _confirmAttachment.value = null
+        viewModelScope.launch { blobs.deleteIfUnreferenced(pending.hash) }
+    }
+
+    /**
+     * Discards the staged attachment; its blob (ingested on pick or on finishing a recording) is GC'd unless
+     * a sent message references it. A staged voice note's description rides on the attachment itself, so it
+     * goes with it — nothing separate to clear.
+     */
+    fun clearAttachment() {
+        val pending = _pendingAttachment.value ?: return
+        _pendingAttachment.value = null
+        viewModelScope.launch { blobs.deleteIfUnreferenced(pending.hash) }
+    }
+
+    /**
+     * Exports the attachment blob [hash] to the public `Pictures/Knit` folder and toasts the result.
+     *
+     * [key] and [mime] come from the message row the user tapped, which is exactly what
+     * [app.swarsetu.ui.image.BlobFetcher] takes to render that bubble — so what gets saved is what is
+     * on screen, by construction. Both matter:
+     *
+     * - A DM/group attachment's stored blob is `iv || ciphertext` ([AttachmentCrypto]), content-addressed
+     *   by the *ciphertext* hash, so it has to be opened before it leaves the app. Without [key] this
+     *   wrote 300 KB of ciphertext into the gallery under an image mime and reported success.
+     * - `blobs.mime` describes those stored (ciphertext) bytes and is only ever as good as whatever named
+     *   the blob when it landed — since ADR 035 a fetcher default on the spool path rather than the frame.
+     *   The row's mime is the plaintext's own type; the blob row is just the fallback.
+     */
+    fun saveAttachment(
+        hash: String,
+        key: String?,
+        mime: String?,
+    ) {
+        viewModelScope.launch {
+            val raw = blobs.bytes(hash)
+            val bytes = if (key != null && raw != null) AttachmentCrypto.open(raw, b64d(key)) else raw
+            val type = mime ?: blobs.mimeFor(hash)
+            val ok = bytes != null && type != null && gallerySaver.saveToPictures(bytes, hash, type)
+            _events.tryEmit(if (ok) R.string.chat_image_saved else R.string.chat_image_save_failed)
+        }
+    }
+
+    /** A message's text was copied to the clipboard; surface the confirmation toast. */
+    fun onMessageCopied() {
+        _events.tryEmit(R.string.chat_message_copied)
+    }
+
+    /** Chat is on screen: suppress this conversation's notifications and clear any active one (the user is reading). */
+    fun onChatForeground() {
+        chatForeground.value = true
+        notifier.setVisibleConversation(conversationId)
+    }
+
+    /** Chat left the screen: resume notifying for this conversation's incoming messages. */
+    fun onChatBackground() {
+        chatForeground.value = false
+        notifier.setVisibleConversation(null)
+    }
+
+    // Wall clock of the last typing cue we sent, so we throttle to at most one per TYPING_SEND_INTERVAL_MS
+    // while the user edits (see onUserTyping). Main-thread-confined (the screen's snapshotFlow collector).
+    private var lastTypingSentAt = 0L
+
+    /**
+     * The user changed the (non-empty) draft: emit a best-effort "now typing" cue, throttled to at most one per
+     * [TYPING_SEND_INTERVAL_MS] and only while the chat is foregrounded. Fires immediately on the first keystroke
+     * after an idle gap (the throttle window has elapsed), so the indicator appears promptly on the other side.
+     * Cheap and fire-and-forget — the screen may call this on every keystroke.
+     */
+    fun onUserTyping() {
+        val now = System.currentTimeMillis()
+        if (!chatForeground.value || now - lastTypingSentAt < TYPING_SEND_INTERVAL_MS) return
+        lastTypingSentAt = now
+        viewModelScope.launch { meshManager.sendTyping(conversationId) }
+    }
+
+    /**
+     * Releases the microphone and silences playback when the chat goes away. The recorder holds an exclusive
+     * system resource that no other app can take back, so an abandoned recording must not outlive the screen
+     * that started it; playback stops because a voice note continuing to sound from a thread the user has
+     * navigated away from reads as a bug, not a feature.
+     */
+    override fun onCleared() {
+        recordingTicker?.cancel()
+        recorder.cancel()
+        voicePlayer.stop()
+        super.onCleared()
+    }
+
+    private companion object {
+        /** Send a typing cue at most this often while actively editing (< the receiver's ~12 s hold, so a peer
+         *  who keeps typing re-cues before their indicator would expire). */
+        const val TYPING_SEND_INTERVAL_MS = 8_000L
+
+        /** Recording UI refresh — fast enough for a level meter to look live, slow enough to stay cheap. */
+        const val VOICE_TICK_MS = 60L
+
+        /**
+         * Shortest voice note worth staging. Below this it is a fumbled press rather than speech, and
+         * discarding it silently beats leaving an unsendable blip in the composer.
+         */
+        const val MIN_VOICE_MS = 700
+    }
+}

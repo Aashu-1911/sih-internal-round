@@ -1,0 +1,344 @@
+package app.swarsetu.ui.chatlist
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.swarsetu.R
+import app.swarsetu.data.GroupRepository
+import app.swarsetu.data.MessageRepository
+import app.swarsetu.data.PeerRepository
+import app.swarsetu.data.group.GroupEntity
+import app.swarsetu.data.message.Conversations
+import app.swarsetu.data.message.DeliveryPlane
+import app.swarsetu.data.message.MessageEntity
+import app.swarsetu.data.peer.PeerEntity
+import app.swarsetu.data.relay.RelayFacts
+import app.swarsetu.data.settings.SettingsStore
+import app.swarsetu.identity.Identity
+import app.swarsetu.mesh.FakeMeshController
+import app.swarsetu.ui.chat.DeliveryStatus
+import app.swarsetu.ui.group
+import app.swarsetu.ui.msg
+import app.swarsetu.ui.peer
+import io.mockk.coEvery
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * Robolectric-hosted (the state combine calls `context.getString`, incl. format args in `previewFor`, so a
+ * real Context returns the actual strings). Covers the unread-count watermark math, room/group/DM assembly
+ * + sort, and the own-message preview label.
+ */
+@RunWith(AndroidJUnit4::class)
+class ChatListViewModelTest {
+    private val context = ApplicationProvider.getApplicationContext<Context>()
+    private val messages = mockk<MessageRepository>(relaxed = true)
+    private val peers = mockk<PeerRepository>(relaxed = true)
+    private val settings = mockk<SettingsStore>(relaxed = true)
+    private val identity = mockk<Identity>(relaxed = true)
+    private val mesh = FakeMeshController()
+    private val groups = mockk<GroupRepository>(relaxed = true)
+
+    private val messagesFlow = MutableStateFlow(emptyList<MessageEntity>())
+    private val blockedFlow = MutableStateFlow(emptySet<String>())
+    private val groupsFlow = MutableStateFlow(emptyList<GroupEntity>())
+    private val peersFlow = MutableStateFlow(emptyList<PeerEntity>())
+    private val lastReadFlow = MutableStateFlow(emptyMap<String, Long>())
+    private val acceptedFlow = MutableStateFlow(emptySet<String>())
+
+    // A finite stand-in for the production poller, which never idles under a virtual clock.
+    private val relayFlow = MutableStateFlow(RelayFacts())
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        coEvery { identity.nodeId() } returns "me"
+        every { messages.observeMessages() } returns messagesFlow
+        every { settings.blockedNodeIds } returns blockedFlow
+        every { groups.observeGroups() } returns groupsFlow
+        every { peers.observePeers() } returns peersFlow
+        every { settings.lastReadAll } returns lastReadFlow
+        every { settings.acceptedConversations } returns acceptedFlow
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
+
+    private fun vm() = ChatListViewModel(messages, peers, settings, identity, mesh, groups, relayFlow, context)
+
+    @Test
+    fun nearbyRoomIsAlwaysPresentEvenWithNoMessages() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            advanceUntilIdle()
+
+            val nearby =
+                vm.state.value.conversations
+                    .first { it.id == Conversations.NEARBY }
+            assertTrue(nearby.isRoom)
+            assertEquals(context.getString(R.string.nearby_title), nearby.title)
+        }
+
+    @Test
+    fun unreadCountsOnlyOthersNormalMessagesAfterTheWatermark() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            messagesFlow.value =
+                listOf(
+                    msg(senderId = "bob", sentAt = 100, conversationId = Conversations.NEARBY),
+                    msg(senderId = "me", sentAt = 200, conversationId = Conversations.NEARBY),
+                )
+            lastReadFlow.value = mapOf(Conversations.NEARBY to 50L)
+            advanceUntilIdle()
+
+            val nearby =
+                vm.state.value.conversations
+                    .first { it.id == Conversations.NEARBY }
+            // bob's (100 > 50, not us) counts; our own 200 is excluded even though it's past the watermark.
+            assertEquals(1, nearby.unreadCount)
+        }
+
+    @Test
+    fun blockedPeersDmThreadIsDropped() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            messagesFlow.value = listOf(msg(senderId = "b", sentAt = 100, conversationId = "b", recipientId = "me"))
+            blockedFlow.value = setOf("b")
+            advanceUntilIdle()
+
+            assertTrue(
+                vm.state.value.conversations
+                    .none { it.id == "b" },
+            )
+        }
+
+    @Test
+    fun conversationsSortMostRecentFirstAndEmptyGroupSortsByCreatedAt() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            messagesFlow.value =
+                listOf(
+                    msg(senderId = "bob", sentAt = 100, conversationId = Conversations.NEARBY),
+                    msg(senderId = "ada", sentAt = 200, conversationId = "ada", recipientId = "me"),
+                )
+            groupsFlow.value = listOf(group(groupId = "g-1", members = listOf("me", "x"), createdAt = 50))
+            // ada + g-1 are accepted so they stay in the main list; this test asserts sort order, not the
+            // request partition (covered by aStrangerDmRequestIsPartitionedOutOfTheListButCounted).
+            acceptedFlow.value = setOf("ada", "g-1")
+            advanceUntilIdle()
+
+            val convos = vm.state.value.conversations
+            // ada DM (200) > nearby (100) > empty group (createdAt 50, its stand-in lastMessageAt).
+            assertEquals(listOf("ada", Conversations.NEARBY, "g-1"), convos.map { it.id })
+            assertEquals(50L, convos.first { it.id == "g-1" }.lastMessageAt)
+        }
+
+    @Test
+    fun ownMessagePreviewIsLabelledWithTheSelfName() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            messagesFlow.value = listOf(msg(senderId = "me", body = "hello", sentAt = 100, conversationId = Conversations.NEARBY))
+            advanceUntilIdle()
+
+            val nearby =
+                vm.state.value.conversations
+                    .first { it.id == Conversations.NEARBY }
+            val expected =
+                context.getString(
+                    R.string.chat_list_preview_with_sender,
+                    context.getString(R.string.chat_self_name),
+                    "hello",
+                )
+            assertEquals(expected, nearby.lastPreview)
+        }
+
+    @Test
+    fun aStrangerDmRequestIsPartitionedOutOfTheListButCounted() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            messagesFlow.value =
+                listOf(msg(senderId = "stranger", sentAt = 100, conversationId = "stranger", recipientId = "me"))
+            advanceUntilIdle()
+
+            // The stranger's DM is not in the main list (it's a pending request)...
+            assertTrue(
+                vm.state.value.conversations
+                    .none { it.id == "stranger" },
+            )
+            // ...but it is counted for the top-bar badge.
+            assertEquals(1, vm.state.value.requestCount)
+        }
+
+    @Test
+    fun aGroupAKnownPeerHasPostedInStaysInTheListAndIsNotCounted() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            // Verified peer "b" posts in the group: it reads as a normal chat, not a request — so it stays
+            // in the list and isn't counted for the badge.
+            groupsFlow.value = listOf(group(groupId = "g-1", members = listOf("me", "x", "b"), createdAt = 50))
+            messagesFlow.value = listOf(msg(senderId = "b", sentAt = 100, conversationId = "g-1"))
+            peersFlow.value = listOf(peer("b", verified = true))
+            advanceUntilIdle()
+
+            assertTrue(
+                vm.state.value.conversations
+                    .any { it.id == "g-1" },
+            )
+            assertEquals(0, vm.state.value.requestCount)
+        }
+
+    @Test
+    fun aGroupWhereAKnownPeerIsAMemberButOnlyAStrangerPostedIsPartitionedOutAndCounted() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            // Verified "b" is a member but silent; only stranger "x" has posted. Membership alone doesn't
+            // promote it — it stays a request.
+            groupsFlow.value = listOf(group(groupId = "g-1", members = listOf("me", "x", "b"), createdAt = 50))
+            messagesFlow.value = listOf(msg(senderId = "x", sentAt = 100, conversationId = "g-1"))
+            peersFlow.value = listOf(peer("b", verified = true))
+            advanceUntilIdle()
+
+            assertTrue(
+                vm.state.value.conversations
+                    .none { it.id == "g-1" },
+            )
+            assertEquals(1, vm.state.value.requestCount)
+        }
+
+    @Test
+    fun anAcceptedDmStaysInTheListAndIsNotCounted() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            messagesFlow.value =
+                listOf(msg(senderId = "friend", sentAt = 100, conversationId = "friend", recipientId = "me"))
+            acceptedFlow.value = setOf("friend")
+            advanceUntilIdle()
+
+            assertTrue(
+                vm.state.value.conversations
+                    .any { it.id == "friend" },
+            )
+            assertEquals(0, vm.state.value.requestCount)
+        }
+
+    @Test
+    fun lastStatusTracksOurOwnNewestMessageAndItsReceiptPlane() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            messagesFlow.value =
+                listOf(
+                    msg(senderId = "friend", sentAt = 100, conversationId = "friend", recipientId = "me"),
+                    msg(
+                        senderId = "me",
+                        sentAt = 200,
+                        conversationId = "friend",
+                        recipientId = "friend",
+                        received = true,
+                        receivedVia = DeliveryPlane.Internet.code,
+                    ),
+                )
+            advanceUntilIdle()
+
+            val dm =
+                vm.state.value.conversations
+                    .first { it.id == "friend" }
+            assertEquals(DeliveryStatus.Delivered, dm.lastStatus)
+            assertEquals(DeliveryPlane.Internet, dm.lastDeliveredVia)
+        }
+
+    @Test
+    fun lastStatusIsSentWithNoReceiptAndPendingWhileTheirKeyIsMissing() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            messagesFlow.value =
+                listOf(
+                    msg(senderId = "me", sentAt = 100, conversationId = "a", recipientId = "a"),
+                    msg(senderId = "me", sentAt = 100, conversationId = "b", recipientId = "b", pendingKey = true),
+                )
+            acceptedFlow.value = setOf("a", "b")
+            advanceUntilIdle()
+
+            val rows =
+                vm.state.value.conversations
+                    .associateBy { it.id }
+            assertEquals(DeliveryStatus.Sent, rows.getValue("a").lastStatus)
+            assertEquals(DeliveryPlane.Unknown, rows.getValue("a").lastDeliveredVia)
+            assertEquals(DeliveryStatus.Pending, rows.getValue("b").lastStatus)
+        }
+
+    @Test
+    fun noTickWhenTheNewestMessageIsNotOurs() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            // Ours is older; theirs is the newest, so delivery isn't ours to report on this row.
+            messagesFlow.value =
+                listOf(
+                    msg(senderId = "me", sentAt = 100, conversationId = "friend", recipientId = "friend"),
+                    msg(senderId = "friend", sentAt = 200, conversationId = "friend", recipientId = "me"),
+                )
+            advanceUntilIdle()
+
+            val rows =
+                vm.state.value.conversations
+                    .associateBy { it.id }
+            assertNull(rows.getValue("friend").lastStatus)
+            // An empty thread has none either.
+            assertNull(rows.getValue(Conversations.NEARBY).lastStatus)
+        }
+
+    @Test
+    fun aStatusNoticeNeverCarriesATick() =
+        runTest {
+            val vm = vm()
+            backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
+            groupsFlow.value = listOf(group(groupId = "g-1", members = listOf("me", "x"), createdAt = 50))
+            // A locally-generated "left the chat" notice keyed to us: never sent anywhere, so no tick.
+            messagesFlow.value =
+                listOf(
+                    msg(senderId = "me", sentAt = 100, conversationId = "g-1"),
+                    msg(
+                        senderId = "me",
+                        sentAt = 200,
+                        conversationId = "g-1",
+                        body = "",
+                        kind = MessageEntity.KIND_MEMBER_LEFT,
+                    ),
+                )
+            advanceUntilIdle()
+
+            assertNull(
+                vm.state.value.conversations
+                    .first { it.id == "g-1" }
+                    .lastStatus,
+            )
+        }
+}
