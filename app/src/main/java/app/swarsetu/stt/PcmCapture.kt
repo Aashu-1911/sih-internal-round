@@ -234,7 +234,7 @@ class PcmCapture(
      */
     fun cancel() {
         _state.value = State.STOPPED
-        runCatching { recorder?.reset() }
+        runCatching { recorder?.stop() }
         runCatching { recorder?.release() }
         recorder = null
         capturedSamples = 0

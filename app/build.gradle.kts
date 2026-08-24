@@ -527,6 +527,11 @@ dependencies {
     // kotlinx-serialization) — no native tokenizer lib, so nothing to 16 KB-align and no .so added to the APK.
     implementation(libs.litert)
 
+    // Offline STT engine (Vosk — Kaldi-based, Apache-2.0). Ships native .so for on-device inference;
+    // models are extracted from assets, not bundled in this AAR. Used only by stt/VoskEngine;
+    // SttEngineFactory falls back to DefaultSttEngine (no-op) if Vosk is absent.
+    implementation(libs.vosk.android)
+
     // E2E encryption (Tink — Java + native, no Kotlin metadata / no Gradle plugin, like SQLCipher)
     implementation(libs.tink.android)
     // QR identity verification (safety-number / QR verify screen). zxing core is the pure-Java codec for
