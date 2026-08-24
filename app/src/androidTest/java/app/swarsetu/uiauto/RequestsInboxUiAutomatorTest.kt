@@ -1,0 +1,80 @@
+package app.swarsetu.uiauto
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import app.swarsetu.R
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * Black-box coverage of the Message Requests inbox reached via the **in-app chat-list badge** — the sibling
+ * of [MessageRequestNotificationUiAutomatorTest], which enters through the system notification shade — plus
+ * the accept-then-open-the-thread hop and the per-row Block confirm path. The debug `REQNOTIF` seam injects a synthetic unaccepted stranger DM; no
+ * `POST_NOTIFICATIONS` grant is needed here because these enter through the UI, not the shade (on API 33 the
+ * heads-up simply no-ops without the grant, so nothing overlays the badge).
+ */
+@RunWith(AndroidJUnit4::class)
+class RequestsInboxUiAutomatorTest : SeededUiAutomatorTest() {
+    /** Injecting a request lights the chat-list badge; tapping it opens the populated Requests inbox. */
+    @Test
+    fun requestBadge_opensInbox() {
+        launch() // seeded chat list — no requests yet, so no badge
+        injectRequest()
+        // The badge appears only when a request is pending; it lights reactively once the row lands.
+        requireTag("chatlist_requests").click()
+        assertText(str(R.string.message_requests_title))
+        assertTag("request_row_$STRANGER")
+        assertText(STRANGER_NAME)
+    }
+
+    /**
+     * Accepting a request opens the thread it belongs to — the inbox is popped on the way, so Back from
+     * the chat lands on the chat list rather than back in the (now shorter) inbox.
+     */
+    @Test
+    fun request_accept_opensTheAcceptedThread() {
+        launch()
+        injectRequest()
+        requireTag("chatlist_requests").click()
+        requireTag("request_accept_$STRANGER").click()
+
+        // We're in the stranger's thread: the composer is up and the top bar names them.
+        assertTag("chat_input")
+        assertText(STRANGER_NAME)
+
+        // Back leaves the chat for the chat list, not the inbox we accepted from.
+        device.pressBack()
+        assertTag("chatlist_fab")
+    }
+
+    /** Blocking a request (row overflow → Block → confirm) removes it, leaving the inbox empty. */
+    @Test
+    fun request_blockPath_removesFromInbox() {
+        launch()
+        injectRequest()
+        requireTag("chatlist_requests").click()
+        requireTag("request_row_$STRANGER")
+
+        // The row's overflow (the only MoreVert on this screen) → the "Block" item → the confirm dialog.
+        requireDesc(str(R.string.chat_more_options)).click()
+        requireText(str(R.string.message_requests_block)).click()
+        requireText(str(R.string.message_requests_block_confirm_title)) // "Block this person?" dialog is up
+        // Exact match: the confirm button "Block" is a substring of the title "Block this person?".
+        requireExactText(str(R.string.message_requests_block)).click()
+
+        // The request leaves the inbox, which is now empty.
+        assertText(str(R.string.message_requests_empty))
+    }
+
+    /** Fires the debug seam that writes one synthetic unaccepted inbound DM (a "message request"). */
+    private fun injectRequest() {
+        device.executeShellCommand("am broadcast -p $PKG -a $REQNOTIF_ACTION --ei count 1")
+    }
+
+    private companion object {
+        const val REQNOTIF_ACTION = "app.swarsetu.debug.REQNOTIF"
+
+        // Mirrors DebugBridgeReceiver.handleReqNotif's first synthetic stranger (nodeId + name).
+        const val STRANGER = "strngr01"
+        const val STRANGER_NAME = "Alex Stranger"
+    }
+}
