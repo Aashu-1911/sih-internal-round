@@ -3,8 +3,8 @@ package app.swarsetu.di
 import android.os.Build
 import androidx.room.withTransaction
 import app.swarsetu.BuildConfig
-import app.swarsetu.data.MeshDatabase
 import app.swarsetu.data.MeshBlobStore
+import app.swarsetu.data.MeshDatabase
 import app.swarsetu.data.crypto.IdentityKeyStore
 import app.swarsetu.data.relay.RelayStatusRepository
 import app.swarsetu.mesh.CompositeMeshTransport
