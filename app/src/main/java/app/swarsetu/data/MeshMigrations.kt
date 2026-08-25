@@ -176,6 +176,17 @@ object MeshMigrations {
             }
         }
 
+    /**
+     * v7 — adds voiceTextLanguage and isAlert to the messages table for offline STT -> Mesh -> TTS pipeline.
+     */
+    val MIGRATION_6_7 =
+        object : Migration(6, 7) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE `messages` ADD COLUMN `voiceTextLanguage` TEXT")
+                connection.execSQL("ALTER TABLE `messages` ADD COLUMN `isAlert` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
     /** All migrations, applied by Room in order. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
 }

@@ -68,6 +68,7 @@ import app.swarsetu.moderation.ImageScreeningService
 import app.swarsetu.moderation.ScopedTextModerator
 import app.swarsetu.normalizeSingleLine
 import app.swarsetu.notifications.Notifier
+import app.swarsetu.voice.VoiceMessageReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -110,6 +111,7 @@ class MeshManager(
     private val blobStore: MeshBlobStore,
     private val forwardStore: ForwardStore,
     private val notifier: Notifier,
+    private val voiceMessageReceiver: VoiceMessageReceiver? = null,
     private val textModeration: ScopedTextModerator,
     private val messageCrypto: MessageCrypto,
     private val ratchet: RatchetSessions,
@@ -228,6 +230,7 @@ class MeshManager(
             settings = settings,
             messageCrypto = messageCrypto,
             notifier = notifier,
+            voiceMessageReceiver = voiceMessageReceiver,
             metrics = metrics,
             forwardSync = forwardSync,
             blobExchange = blobExchange,
@@ -510,10 +513,13 @@ class MeshManager(
         recipientId: String?,
         group: GroupInfo?,
         replyTo: ReplyRef?,
+        voiceTextLanguage: String?,
+        isAlert: Boolean,
+        messageId: String?,
     ): Boolean {
         if (isTextFlagged(text, "outgoing", isRoom = recipientId == null && group == null)) return false
         val me = identity.nodeId()
-        val id = FrameId.new()
+        val id = messageId ?: app.swarsetu.mesh.protocol.FrameId.new()
         val sentAt = clock()
         val conversationId = Conversations.idFor(me, recipientId, me, group?.id)
 
@@ -535,6 +541,8 @@ class MeshManager(
                     // in the room (ADR 034), so in practice this is always null here.
                     voiceDurationMs = attachment?.voice?.durationMs,
                     voicePeaks = attachment?.voice?.peaks,
+                    voiceTextLanguage = voiceTextLanguage,
+                    isAlert = isAlert,
                 ).withReply(replyTo),
             )
             val content =
@@ -544,6 +552,8 @@ class MeshManager(
                     attachmentHash = attachment?.hash,
                     attachmentMime = attachment?.mime,
                     replyTo = replyTo,
+                    voiceTextLanguage = voiceTextLanguage,
+                    isAlert = if (isAlert) true else null,
                 )
             originateSigned(chatEnvelope(id, me, sentAt, recipientId = null, group = null, content))
             return true
@@ -560,6 +570,8 @@ class MeshManager(
                 attachmentMime = attachment?.mime,
                 attachmentKey = sealedAttachment?.key,
                 replyTo = replyTo,
+                voiceTextLanguage = voiceTextLanguage,
+                isAlert = if (isAlert) true else null,
             )
         val envelope = sealEnvelopeFor(id, me, sentAt, recipientId, group, content)
         // Persist our own plaintext copy regardless, so the sender always sees their message. A DM whose
@@ -578,13 +590,11 @@ class MeshManager(
                 attachmentHash = sealedAttachment?.hash,
                 attachmentMime = attachment?.mime,
                 attachmentKey = sealedAttachment?.key,
-                // A voice note's duration/waveform, derived at ingest and written here rather than by the
-                // composer: the row records the *ciphertext* hash, so a caller keying off the plaintext one
-                // it staged would update nothing. The recipient derives the identical pair from the same
-                // bytes when the blob lands (InboundPipeline.onObtained) — neither value is on the wire.
                 voiceDurationMs = attachment?.voice?.durationMs,
                 voicePeaks = attachment?.voice?.peaks,
                 pendingKey = envelope == null && group == null,
+                voiceTextLanguage = voiceTextLanguage,
+                isAlert = isAlert,
             ).withReply(replyTo),
         )
         if (envelope == null) {

@@ -65,6 +65,7 @@ import app.swarsetu.notifications.NotifConversation
 import app.swarsetu.notifications.Notifier
 import app.swarsetu.notifications.incomingNotification
 import app.swarsetu.notifications.mentionNotification
+import app.swarsetu.voice.VoiceMessageReceiver
 import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -106,6 +107,7 @@ class InboundPipeline(
     private val settings: InboundSettings,
     private val messageCrypto: MessageCrypto,
     private val notifier: Notifier,
+    private val voiceMessageReceiver: VoiceMessageReceiver? = null,
     private val metrics: MeshMetrics,
     private val forwardSync: ForwardSync,
     private val blobExchange: BlobExchange,
@@ -1694,7 +1696,7 @@ class InboundPipeline(
         // The save below is an idempotent upsert, so only the notification needs gating.
         val isNew = !messages.exists(env.id)
         val hash = content.attachmentHash
-        persist(
+        val entity =
             MessageEntity(
                 id = env.id,
                 senderId = env.senderId,
@@ -1714,16 +1716,20 @@ class InboundPipeline(
                 attachmentHash = hash,
                 attachmentMime = content.attachmentMime,
                 attachmentKey = attachmentKey,
-                moderation =
-                    if (
-                        classifyText(content.body, "incoming", conversationId == Conversations.NEARBY)
-                    ) {
-                        MessageEntity.MODERATION_TEXT_FLAGGED
-                    } else {
-                        MessageEntity.MODERATION_NONE
-                    },
-            ).withReply(content.replyTo),
-        )
+                moderation = if (classifyText(content.body, "incoming", conversationId == Conversations.NEARBY)) {
+                    MessageEntity.MODERATION_TEXT_FLAGGED
+                } else {
+                    MessageEntity.MODERATION_NONE
+                },
+                voiceTextLanguage = content.voiceTextLanguage,
+                isAlert = content.isAlert ?: false
+            ).withReply(content.replyTo)
+            
+            persist(entity)
+            
+            if (entity.voiceTextLanguage != null) {
+                voiceMessageReceiver?.onVoiceMessageReceived(entity)
+            }
         // Start pulling the referenced blob unless we already hold it (the UI observes the blobs table
         // and flips the attachment from "loading" to shown once the bytes land). If we already hold it
         // (e.g. cached earlier while relaying), screen its decrypted bytes now that the key is in hand;

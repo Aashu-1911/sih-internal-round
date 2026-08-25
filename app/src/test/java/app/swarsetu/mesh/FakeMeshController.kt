@@ -37,6 +37,8 @@ class FakeMeshController : MeshController {
         val recipientId: String?,
         val group: GroupInfo?,
         val replyTo: ReplyRef?,
+        val voiceTextLanguage: String? = null,
+        val isAlert: Boolean = false,
     )
 
     val sentChats = mutableListOf<SentChat>()
@@ -75,8 +77,10 @@ class FakeMeshController : MeshController {
         recipientId: String?,
         group: GroupInfo?,
         replyTo: ReplyRef?,
+        voiceTextLanguage: String?,
+        isAlert: Boolean,
     ): Boolean {
-        sentChats += SentChat(text, attachment, mentions, recipientId, group, replyTo)
+        sentChats += SentChat(text, attachment, mentions, recipientId, group, replyTo, voiceTextLanguage, isAlert)
         return sendChatResult
     }
 

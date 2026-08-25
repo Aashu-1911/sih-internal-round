@@ -152,6 +152,8 @@ data class ChatContent(
     // DM/group the quote rides inside [enc] ([MessageContent.replyTo]) so it stays private, and this is
     // left null — mirroring how [body]/[mentions] are blank on an encrypted frame.
     val replyTo: ReplyRef? = null,
+    val voiceTextLanguage: String? = null,
+    val isAlert: Boolean? = null,
 )
 
 /**

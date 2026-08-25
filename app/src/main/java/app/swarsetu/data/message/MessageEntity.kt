@@ -85,6 +85,8 @@ data class MessageEntity(
     val moderation: Int = MODERATION_NONE,
     val pendingKey: Boolean = false,
     val kind: Int = KIND_NORMAL,
+    val voiceTextLanguage: String? = null,
+    val isAlert: Boolean = false,
 ) {
     companion object {
         /** [moderation]: text passed (or was not checked). */
