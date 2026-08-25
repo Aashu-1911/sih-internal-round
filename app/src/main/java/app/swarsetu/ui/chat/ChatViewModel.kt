@@ -203,6 +203,8 @@ class ChatViewModel(
     // never reach idle. Taking the flow lets a test supply a finite one.
     private val relayFacts: Flow<RelayFacts>,
     private val context: Context,
+    private val voiceMessageAdapter: app.swarsetu.voice.VoiceMessageAdapter,
+    private val voiceController: app.swarsetu.voice.VoiceConversationController,
 ) : ViewModel() {
     /** This thread is the broadcast room (vs a 1:1 DM keyed by the peer's node id). */
     private val isRoom = conversationId == Conversations.NEARBY
@@ -239,6 +241,14 @@ class ChatViewModel(
 
     /** Playback state of whichever voice note is loaded app-wide; a bubble matches it against its own hash. */
     val voicePlayback: StateFlow<VoicePlayer.Playback?> = voicePlayer.nowPlaying
+
+    private val _isLiveTranslateEnabled = MutableStateFlow(false)
+    val isLiveTranslateEnabled: StateFlow<Boolean> = _isLiveTranslateEnabled.asStateFlow()
+
+    fun toggleLiveTranslate(enabled: Boolean) {
+        _isLiveTranslateEnabled.value = enabled
+        voiceController.isMeshEnabled = enabled
+    }
 
     // Built lazily so a chat that never records never opens a recorder, and torn down in onCleared: the
     // microphone is exclusive, and leaking it would block every other app until this process died.
@@ -569,20 +579,30 @@ class ChatViewModel(
                 // Re-read the group at send time so it's never misrouted as a DM in a startup race, and so
                 // a pending rename rides this message (its GroupInfo.name converges last-writer-wins).
                 val group = if (isRoom) null else groups.find(conversationId)
+                val voiceLanguage = if (_isLiveTranslateEnabled.value) app.swarsetu.tts.TtsLanguage.HINDI.name else null
+                
                 val sent =
                     if (group != null) {
                         meshManager.sendChat(
-                            trimmed,
-                            attachment,
-                            mentions,
+                            text = trimmed,
+                            attachment = attachment,
+                            mentions = mentions,
                             recipientId = null,
                             group = group.toGroupInfo(),
                             replyTo = outgoingReply,
+                            voiceTextLanguage = voiceLanguage,
                         )
                     } else {
                         // Broadcast room -> no recipient; a DM thread is keyed by the peer's node id.
                         val recipientId = if (isRoom) null else conversationId
-                        meshManager.sendChat(trimmed, attachment, mentions, recipientId, replyTo = outgoingReply)
+                        meshManager.sendChat(
+                            text = trimmed, 
+                            attachment = attachment, 
+                            mentions = mentions, 
+                            recipientId = recipientId, 
+                            replyTo = outgoingReply,
+                            voiceTextLanguage = voiceLanguage,
+                        )
                     }
                 // MeshManager applies block-on-send. Clear the input/attachment only once a message is
                 // accepted; a blocked message keeps the draft and surfaces a toast so the user can edit.
@@ -749,10 +769,27 @@ class ChatViewModel(
      */
     fun startVoiceRecording(locked: Boolean = false): Boolean {
         if (_voiceRecording.value != null) return false
-        if (!recorder.start()) {
-            _events.tryEmit(R.string.chat_voice_record_failed)
-            return false
+        
+        if (_isLiveTranslateEnabled.value) {
+            // Live translate mode: trigger the STT pipeline for mesh voice translation.
+            viewModelScope.launch {
+                val groupInfo = groups.find(conversationId)?.toGroupInfo()
+                voiceMessageAdapter.startVoiceMessage(
+                    language = app.swarsetu.stt.SttLanguage.HINDI, // Default to Hindi
+                    recipientId = if (!isRoom && groupInfo == null) conversationId else null,
+                    group = groupInfo,
+                    replyTo = null,
+                    isAlert = false
+                )
+            }
+        } else {
+            // Audio recording mode
+            if (!recorder.start()) {
+                _events.tryEmit(R.string.chat_voice_record_failed)
+                return false
+            }
         }
+
         _voiceRecording.value = VoiceRecording(elapsedMs = 0L, amplitude = 0f, locked = locked)
         recordingTicker?.cancel()
         recordingTicker =
@@ -789,6 +826,13 @@ class ChatViewModel(
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
+        
+        if (_isLiveTranslateEnabled.value) {
+            voiceMessageAdapter.stopVoiceMessage()
+            _voiceRecording.value = null
+            return
+        }
+
         _voiceRecording.value = null
         // Decide on the *elapsed time* before touching the recorder. A press too short to have encoded a
         // frame is the common fumble, and taking it through stop() is what made it look like a hardware
@@ -831,10 +875,15 @@ class ChatViewModel(
 
     /** Abandons an in-progress recording — the user slid to cancel. Nothing is ingested, so there's no GC. */
     fun cancelVoiceRecording() {
+        if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
+        if (_isLiveTranslateEnabled.value) {
+            voiceMessageAdapter.stopVoiceMessage()
+        } else {
+            recorder.cancel()
+        }
         _voiceRecording.value = null
-        recorder.cancel()
     }
 
     /** Plays (or pauses, when it's already the loaded note) the voice note stored under [hash]. */

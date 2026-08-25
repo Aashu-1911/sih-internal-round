@@ -111,7 +111,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -221,6 +224,7 @@ fun ChatScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isSending by viewModel.isSending.collectAsStateWithLifecycle()
+    val isLiveTranslateEnabled by viewModel.isLiveTranslateEnabled.collectAsStateWithLifecycle()
     val pendingAttachment by viewModel.pendingAttachment.collectAsStateWithLifecycle()
     val confirmAttachment by viewModel.confirmAttachment.collectAsStateWithLifecycle()
     val stagedAttachmentRelay by viewModel.stagedAttachmentRelay.collectAsStateWithLifecycle()
@@ -397,6 +401,8 @@ fun ChatScreen(
             }
         },
         onSaveAttachment = viewModel::saveAttachment,
+        isLiveTranslateEnabled = isLiveTranslateEnabled,
+        onToggleLiveTranslate = viewModel::toggleLiveTranslate,
         voiceRecording = voiceRecording,
         voicePlayback = voicePlayback,
         onStartVoice = { locked -> viewModel.startVoiceRecording(locked) },
@@ -467,6 +473,8 @@ internal fun ChatScreenContent(
     // Voice notes. `voiceRecording` is non-null only while the mic is live, and replaces the whole input row
     // while it is; `voicePlayback` is the app-wide "which note is sounding" state each bubble matches its own
     // hash against. All defaulted so the previews and the content-level tests need not name them.
+    isLiveTranslateEnabled: Boolean = false,
+    onToggleLiveTranslate: (Boolean) -> Unit = {},
     voiceRecording: ChatViewModel.VoiceRecording? = null,
     voicePlayback: VoicePlayer.Playback? = null,
     onStartVoice: (locked: Boolean) -> Unit = {},
@@ -637,6 +645,23 @@ internal fun ChatScreenContent(
                     }
                 },
                 actions = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        androidx.compose.material3.Text(
+                            text = "STT",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(end = 4.dp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        androidx.compose.material3.Switch(
+                            checked = isLiveTranslateEnabled,
+                            onCheckedChange = { onToggleLiveTranslate(it) },
+                            modifier = Modifier.scale(0.8f)
+                        )
+                    }
+                    
                     // The overflow lives on DM and group threads (the broadcast room has no actions).
                     // A DM offers Block/Unblock; a group offers Settings, which opens the same
                     // group-details screen as tapping the group avatar (the avatar tap stays too).
