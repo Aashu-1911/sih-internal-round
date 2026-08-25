@@ -32,4 +32,5 @@ val sttModule =
         single { SttEngineFactory(androidContext(), get()) }
         single<SttEngine> { get<SttEngineFactory>().create() }
         single { PcmCapture(androidContext()) }
+        single { app.swarsetu.stt.SttPipeline(androidContext(), get()) }
     }
