@@ -91,6 +91,15 @@ class ProfileViewModel(
         settings.contentFilteringEnabled
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
+    /** Persisted STT language code. */
+    val sttLanguageCode: StateFlow<String> =
+        settings.sttLanguageCode
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "hi")
+
+    fun setSttLanguage(code: String) {
+        viewModelScope.launch { settings.setSttLanguage(code) }
+    }
+
     /**
      * Summary of the Internet (spool) plane for the row that navigates to its own screen — the switch
      * itself lives there now, with the relay-list editor it needs to be actionable.

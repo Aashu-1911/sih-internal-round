@@ -102,6 +102,16 @@ class TtsTestViewModel(
         }
     }
 
+    fun startSttListening() {
+        val selectedTtsLang = _uiState.value.selectedLanguage
+        val sttLang = SttLanguage.entries.firstOrNull { it.toTtsLanguage() == selectedTtsLang } ?: SttLanguage.HINDI
+        voiceController.startListening(sttLang)
+    }
+
+    fun stopSttListening() {
+        voiceController.stopListening()
+    }
+
     fun toggleMesh(enabled: Boolean) {
         voiceController.isMeshEnabled = enabled
         voiceController.isLoopEnabled = false // mutually exclusive

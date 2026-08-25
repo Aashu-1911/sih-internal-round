@@ -131,6 +131,22 @@ fun TtsTestScreen(
                     label = { Text("MESH Mode") }
                 )
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { viewModel.startSttListening() },
+                    modifier = Modifier.weight(1f),
+                    enabled = voiceState != app.swarsetu.voice.VoiceState.LISTENING && voiceState != app.swarsetu.voice.VoiceState.RECOGNIZING
+                ) {
+                    Text("Start STT Mic")
+                }
+                Button(
+                    onClick = { viewModel.stopSttListening() },
+                    modifier = Modifier.weight(1f),
+                    enabled = voiceState == app.swarsetu.voice.VoiceState.LISTENING || voiceState == app.swarsetu.voice.VoiceState.RECOGNIZING
+                ) {
+                    Text("Stop STT Mic")
+                }
+            }
             Text("Voice State: $voiceState", style = MaterialTheme.typography.bodyMedium)
             
             val vm by viewModel.voiceController.voiceMetrics.collectAsState()

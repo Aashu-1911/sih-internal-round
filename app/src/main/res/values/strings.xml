@@ -257,6 +257,8 @@
     <string name="profile_remove_photo_desc">Remove profile photo</string>
     <string name="settings_content_filtering_title">Content filtering</string>
     <string name="settings_content_filtering_subtitle">Hide explicit images and abusive messages you receive from others</string>
+    <string name="settings_stt_language_title">Speech recognition language</string>
+    <string name="settings_stt_language_subtitle">Language for voice-to-text transcription</string>
 
     <!-- Profile details (another peer) -->
     <string name="profile_details_title">Profile</string>

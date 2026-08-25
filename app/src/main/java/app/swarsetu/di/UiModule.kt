@@ -43,6 +43,7 @@ val uiModule =
                 androidContext(),
                 get(),
                 get(),
+                get(),
             )
         }
         viewModel {

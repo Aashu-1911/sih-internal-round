@@ -270,6 +270,7 @@ fun VoiceRecordingBar(
     locked: Boolean,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    liveText: String = "",
 ) {
     Surface(
         shape = RoundedCornerShape(24.dp),
@@ -277,18 +278,10 @@ fun VoiceRecordingBar(
         modifier = modifier.testTag("chat_voice_recording"),
     ) {
         Row(
-            // A full field's worth of height, not whatever the content happens to measure: the bar shares the
-            // field container with the mic and has to hold that container at the same height the text field
-            // leaves it at, both while the button is held and after it locks. Sizing to content instead let
-            // the bar sit low in the container while held (the container floors at 48dp; a 32dp bar
-            // bottom-aligned inside it puts the dot and the counter 8dp below centre) and then jump taller
-            // on lock, when the ✕ replaced the slide-to-cancel label.
             modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // The dot swells with the input level, so the user can see the mic is actually hearing them —
-            // the one thing a static "Recording…" label can't tell them.
             val dot = (8f + amplitude.coerceIn(0f, 1f) * 6f).dp
             val recordingLabel = stringResource(R.string.chat_voice_recording)
             Box(
@@ -304,6 +297,16 @@ fun VoiceRecordingBar(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
+            if (liveText.isNotBlank()) {
+                Text(
+                    text = liveText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
             Spacer(Modifier.weight(1f))
             if (locked) {
                 Box(

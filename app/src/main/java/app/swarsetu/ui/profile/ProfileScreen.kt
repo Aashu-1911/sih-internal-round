@@ -73,6 +73,7 @@ import app.swarsetu.TextLimits
 import app.swarsetu.identity.displayNameFor
 import app.swarsetu.ui.components.Avatar
 import app.swarsetu.ui.isIgnoringBatteryOptimizations
+import app.swarsetu.stt.SttLanguage
 import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.requestIgnoreBatteryOptimizations
 import org.koin.androidx.compose.koinViewModel
@@ -86,6 +87,7 @@ internal data class ProfileFormState(
     val avatarHash: String?,
     val contentFilteringEnabled: Boolean,
     val relay: RelaySummary,
+    val sttLanguageCode: String,
     val isDirty: Boolean,
 )
 
@@ -104,6 +106,7 @@ fun ProfileScreen(
     val contentFilteringEnabled by viewModel.contentFilteringEnabled.collectAsStateWithLifecycle()
     val relay by viewModel.relaySummary.collectAsStateWithLifecycle()
     val isDirty by viewModel.isDirty.collectAsStateWithLifecycle()
+    val sttLanguageCode by viewModel.sttLanguageCode.collectAsStateWithLifecycle()
 
     // Navigate back only once Save has finished persisting (the write outlives this composition because
     // it runs in viewModelScope, but we wait so the user lands back on the previous screen on success).
@@ -136,6 +139,7 @@ fun ProfileScreen(
                 avatarHash = avatarHash,
                 contentFilteringEnabled = contentFilteringEnabled,
                 relay = relay,
+                sttLanguageCode = sttLanguageCode,
                 isDirty = isDirty,
             ),
         batteryExempt = rememberBatteryExempt(),
@@ -145,6 +149,7 @@ fun ProfileScreen(
         onStatusChange = viewModel::setStatus,
         onStatusCommit = viewModel::commitStatus,
         onToggleContentFiltering = viewModel::setContentFilteringEnabled,
+        onSttLanguageChange = viewModel::setSttLanguage,
         onOpenRelays = onOpenRelays,
         onPickPhoto = {
             picker.launch(
@@ -168,6 +173,7 @@ internal fun ProfileScreenContent(
     onStatusChange: (String) -> Unit,
     onStatusCommit: () -> Unit,
     onToggleContentFiltering: (Boolean) -> Unit,
+    onSttLanguageChange: (String) -> Unit,
     onOpenRelays: () -> Unit,
     // Whether the Internet-relay plane is introduced at all in this build. A parameter rather than a
     // bare BuildConfig read so the hidden case is previewable and testable; see app/build.gradle.kts.
@@ -254,6 +260,11 @@ internal fun ProfileScreenContent(
                 onToggle = onToggleContentFiltering,
             )
 
+            SttLanguageRow(
+                selectedCode = form.sttLanguageCode,
+                onLanguageSelected = onSttLanguageChange,
+            )
+
             if (showInternetRelays) InternetRelayRow(summary = form.relay, onClick = onOpenRelays)
 
             BatteryOptimizationRow(exempt = batteryExempt, onAllow = onAllowBattery)
@@ -264,6 +275,65 @@ internal fun ProfileScreenContent(
                 modifier = Modifier.fillMaxWidth().testTag("profile_save"),
             ) {
                 Text(stringResource(R.string.action_save))
+            }
+        }
+    }
+}
+
+/** STT language selector row with a dropdown. */
+@Composable
+private fun SttLanguageRow(
+    selectedCode: String,
+    onLanguageSelected: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val languages = remember { SttLanguage.entries.filter { it.assetDir != null } }
+    val selected = remember(selectedCode) { SttLanguage.fromCode(selectedCode) ?: SttLanguage.HINDI }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Text(
+            text = stringResource(R.string.settings_stt_language_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = stringResource(R.string.settings_stt_language_subtitle),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.padding(top = 4.dp))
+        Box {
+            OutlinedTextField(
+                value = selected.displayName,
+                onValueChange = {},
+                readOnly = true,
+                modifier = Modifier.fillMaxWidth().testTag("profile_stt_language"),
+                trailingIcon = {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.clickable { expanded = true },
+                    )
+                },
+            )
+            // Invisible clickable overlay so the whole field opens the dropdown
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable { expanded = true },
+            )
+        }
+        androidx.compose.material3.DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            languages.forEach { lang ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(lang.displayName) },
+                    onClick = {
+                        onLanguageSelected(lang.code)
+                        expanded = false
+                    },
+                )
             }
         }
     }
@@ -499,6 +569,7 @@ fun ProfileScreenPreview() =
                     avatarHash = null,
                     contentFilteringEnabled = true,
                     relay = RelaySummary(),
+                    sttLanguageCode = "hi",
                     isDirty = true,
                 ),
             batteryExempt = false,
@@ -508,6 +579,7 @@ fun ProfileScreenPreview() =
             onStatusChange = {},
             onStatusCommit = {},
             onToggleContentFiltering = {},
+            onSttLanguageChange = {},
             onOpenRelays = {},
             onPickPhoto = {},
             onClearPhoto = {},
@@ -531,6 +603,7 @@ fun ProfileScreenNewUserPreview() =
                     avatarHash = null,
                     contentFilteringEnabled = true,
                     relay = RelaySummary(),
+                    sttLanguageCode = "hi",
                     isDirty = false,
                 ),
             batteryExempt = true,
@@ -540,6 +613,7 @@ fun ProfileScreenNewUserPreview() =
             onStatusChange = {},
             onStatusCommit = {},
             onToggleContentFiltering = {},
+            onSttLanguageChange = {},
             onOpenRelays = {},
             onPickPhoto = {},
             onClearPhoto = {},

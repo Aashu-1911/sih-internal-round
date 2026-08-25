@@ -193,6 +193,10 @@ class SttPipeline(
         val samplesPerSilenceTimeout = (language.sampleRate * silenceTimeoutMs / 1000).toInt()
         val frameSize = language.sampleRate / 33 // ~30ms frames for VAD
 
+        // Emit a partial transcription every ~1 second of accumulated audio
+        val partialIntervalSamples = language.sampleRate // 1 second worth of samples
+        var samplesSinceLastPartial = 0
+
         while (_state.value == PipelineState.CAPTURING) {
             val chunk = withContext(Dispatchers.IO) {
                 capture.readChunk(maxSamples = frameSize)
@@ -215,6 +219,22 @@ class SttPipeline(
 
             // Accumulate
             for (s in chunk) allSamples.add(s)
+            samplesSinceLastPartial += chunk.size
+
+            // Emit partial transcription every ~1 second so the user sees live text
+            if (samplesSinceLastPartial >= partialIntervalSamples && allSamples.size >= partialIntervalSamples) {
+                samplesSinceLastPartial = 0
+                try {
+                    val partialPcm = ShortArray(allSamples.size) { allSamples[it] }
+                    val partialResult = engine.transcribe(partialPcm, language)
+                    if (partialResult.text.isNotBlank()) {
+                        _partialText.value = partialResult.text
+                        Log.d(TAG, "Partial: \"${partialResult.text}\"")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Partial transcription failed: ${e.message}")
+                }
+            }
 
             // Check if silence timeout reached after speech
             if (vadState == VoiceActivityDetector.State.SILENT && lastSpeechSample > 0) {

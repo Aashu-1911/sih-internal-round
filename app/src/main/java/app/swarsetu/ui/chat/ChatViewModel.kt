@@ -66,6 +66,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import app.swarsetu.voice.toTtsLanguage
 
 data class ChatRow(
     val id: String,
@@ -205,6 +206,7 @@ class ChatViewModel(
     private val context: Context,
     private val voiceMessageAdapter: app.swarsetu.voice.VoiceMessageAdapter,
     private val voiceController: app.swarsetu.voice.VoiceConversationController,
+    private val sttPipeline: app.swarsetu.stt.SttPipeline,
 ) : ViewModel() {
     /** This thread is the broadcast room (vs a 1:1 DM keyed by the peer's node id). */
     private val isRoom = conversationId == Conversations.NEARBY
@@ -244,6 +246,15 @@ class ChatViewModel(
 
     private val _isLiveTranslateEnabled = MutableStateFlow(false)
     val isLiveTranslateEnabled: StateFlow<Boolean> = _isLiveTranslateEnabled.asStateFlow()
+
+    val sttPartialText: StateFlow<String> = sttPipeline.partialText
+    val sttLatestResult: StateFlow<app.swarsetu.stt.SttResult?> = sttPipeline.latestResult
+
+    /** User-selected STT language, persisted in SettingsStore. */
+    val selectedSttLanguage: StateFlow<app.swarsetu.stt.SttLanguage> =
+        settings.sttLanguageCode
+            .map { code -> app.swarsetu.stt.SttLanguage.fromCode(code) ?: app.swarsetu.stt.SttLanguage.HINDI }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5_000), app.swarsetu.stt.SttLanguage.HINDI)
 
     fun toggleLiveTranslate(enabled: Boolean) {
         _isLiveTranslateEnabled.value = enabled
@@ -579,7 +590,7 @@ class ChatViewModel(
                 // Re-read the group at send time so it's never misrouted as a DM in a startup race, and so
                 // a pending rename rides this message (its GroupInfo.name converges last-writer-wins).
                 val group = if (isRoom) null else groups.find(conversationId)
-                val voiceLanguage = if (_isLiveTranslateEnabled.value) app.swarsetu.tts.TtsLanguage.HINDI.name else null
+                val voiceLanguage = if (_isLiveTranslateEnabled.value) selectedSttLanguage.value.toTtsLanguage()?.name else null
                 
                 val sent =
                     if (group != null) {
@@ -770,41 +781,30 @@ class ChatViewModel(
     fun startVoiceRecording(locked: Boolean = false): Boolean {
         if (_voiceRecording.value != null) return false
         
-        if (_isLiveTranslateEnabled.value) {
-            // Live translate mode: trigger the STT pipeline for mesh voice translation.
-            viewModelScope.launch {
-                val groupInfo = groups.find(conversationId)?.toGroupInfo()
-                voiceMessageAdapter.startVoiceMessage(
-                    language = app.swarsetu.stt.SttLanguage.HINDI, // Default to Hindi
-                    recipientId = if (!isRoom && groupInfo == null) conversationId else null,
-                    group = groupInfo,
-                    replyTo = null,
-                    isAlert = false
-                )
-            }
+        // Always use STT pipeline for speech recognition — the user expects to see text.
+        val language = selectedSttLanguage.value
+        if (sttPipeline.canCapture) {
+            sttPipeline.startCapture(language)
         } else {
-            // Audio recording mode
-            if (!recorder.start()) {
-                _events.tryEmit(R.string.chat_voice_record_failed)
-                return false
-            }
+            _events.tryEmit(R.string.chat_voice_record_failed)
+            return false
         }
 
         _voiceRecording.value = VoiceRecording(elapsedMs = 0L, amplitude = 0f, locked = locked)
         recordingTicker?.cancel()
+        val startTime = System.currentTimeMillis()
         recordingTicker =
             viewModelScope.launch {
                 while (true) {
                     delay(VOICE_TICK_MS)
-                    val elapsed = recorder.elapsedMs()
-                    // Stop cleanly at the cap rather than letting the recorder run on: the note is still
-                    // staged, so a user who talks past five minutes keeps what they said instead of losing it.
+                    val elapsed = System.currentTimeMillis() - startTime
+                    val amp = sttPipeline.amplitude.value
                     if (elapsed >= VoiceRecorder.MAX_DURATION_MS) {
                         stopVoiceRecordingAndStage()
                         return@launch
                     }
                     _voiceRecording.value =
-                        _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = recorder.amplitude())
+                        _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = amp)
                 }
             }
         return true
@@ -821,18 +821,16 @@ class ChatViewModel(
      *
      * A recording too short to have said anything is discarded rather than staged: releasing the button by
      * accident is common, and an unsendable 0.2 s blip in the composer is worse than nothing happening.
-     */
-    fun stopVoiceRecordingAndStage() {
+     */    fun stopVoiceRecordingAndStage() {
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
         
-        if (_isLiveTranslateEnabled.value) {
-            voiceMessageAdapter.stopVoiceMessage()
-            _voiceRecording.value = null
-            return
+        // Stop the STT pipeline — the result will flow through sttLatestResult
+        // and the ChatScreen LaunchedEffect will place it in the input field.
+        if (sttPipeline.state.value != app.swarsetu.stt.SttPipeline.PipelineState.IDLE) {
+            sttPipeline.stopCapture()
         }
-
         _voiceRecording.value = null
         // Decide on the *elapsed time* before touching the recorder. A press too short to have encoded a
         // frame is the common fumble, and taking it through stop() is what made it look like a hardware
@@ -878,11 +876,7 @@ class ChatViewModel(
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
-        if (_isLiveTranslateEnabled.value) {
-            voiceMessageAdapter.stopVoiceMessage()
-        } else {
-            recorder.cancel()
-        }
+        sttPipeline.cancelCapture()
         _voiceRecording.value = null
     }
 

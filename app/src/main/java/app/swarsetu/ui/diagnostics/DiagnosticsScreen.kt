@@ -179,7 +179,7 @@ internal fun DiagnosticsScreenContent(
                     onClick = onOpenTtsTest,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
-                    Text("TTS Developer Test (Phase 1)")
+                    Text("STT & TTS Voice Pipeline Test (Phase 1-3)")
                 }
             }
 

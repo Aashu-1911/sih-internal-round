@@ -167,6 +167,9 @@ class SettingsStore(
      */
     val spoolConsented: Flow<Boolean> = dataStore.data.map { it[KEY_SPOOL_CONSENTED] ?: false }
 
+    /** Persisted STT language code (e.g. "hi", "en"). Defaults to Hindi. */
+    val sttLanguageCode: Flow<String> = dataStore.data.map { it[KEY_STT_LANGUAGE] ?: "hi" }
+
     suspend fun setDisplayName(value: String) = dataStore.edit { it[KEY_NAME] = value }
 
     suspend fun setStatus(value: String) = dataStore.edit { it[KEY_STATUS] = value }
@@ -282,6 +285,8 @@ class SettingsStore(
 
     suspend fun removeSpoolUrl(url: String) = dataStore.edit { it[KEY_SPOOL_URLS] = (it[KEY_SPOOL_URLS] ?: emptySet()) - url }
 
+    suspend fun setSttLanguage(code: String) = dataStore.edit { it[KEY_STT_LANGUAGE] = code }
+
     /** Dynamic per-conversation read-watermark key, e.g. "last_read_nearby" / "last_read_<nodeId>". */
     private fun lastReadKey(conversationId: String) = longPreferencesKey(LAST_READ_PREFIX + conversationId)
 
@@ -306,5 +311,6 @@ class SettingsStore(
         val KEY_SPOOL_URLS = stringSetPreferencesKey("spool_urls")
         val KEY_SPOOL_SEEDED = booleanPreferencesKey("spool_defaults_seeded")
         val KEY_SPOOL_CONSENTED = booleanPreferencesKey("spool_consented")
+        val KEY_STT_LANGUAGE = stringPreferencesKey("stt_language")
     }
 }

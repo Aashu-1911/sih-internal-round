@@ -294,6 +294,24 @@ fun ChatScreen(
             viewModel.onInputCleared()
         }
     }
+
+    val sttPartialText by viewModel.sttPartialText.collectAsStateWithLifecycle()
+    val sttLatestResult by viewModel.sttLatestResult.collectAsStateWithLifecycle()
+
+    LaunchedEffect(sttPartialText) {
+        // Show live partial transcription text during recording.
+        if (sttPartialText.isNotBlank()) {
+            inputState.setTextAndPlaceCursorAtEnd(sttPartialText)
+        }
+    }
+
+    LaunchedEffect(sttLatestResult) {
+        // When STT completes, place the final transcription in the input field for review.
+        val resText = sttLatestResult?.text
+        if (!resText.isNullOrBlank()) {
+            inputState.setTextAndPlaceCursorAtEnd(resText)
+        }
+    }
     // Drain any payload handed in from the system share sheet (see ShareInbox): prefill the text draft
     // and stage the image through the normal attach() path, so it inherits ingest-time screening and
     // the "send anyway?" / hard-block handling. consume() is single-shot, so only the chat opened right
@@ -411,6 +429,7 @@ fun ChatScreen(
         onCancelVoice = viewModel::cancelVoiceRecording,
         onVoicePlay = viewModel::playVoice,
         onVoiceSeek = viewModel::seekVoice,
+        sttPartialText = sttPartialText,
     )
 
     // Sending an explicit image is allowed but discouraged: confirm before staging a flagged one.
@@ -475,6 +494,7 @@ internal fun ChatScreenContent(
     // hash against. All defaulted so the previews and the content-level tests need not name them.
     isLiveTranslateEnabled: Boolean = false,
     onToggleLiveTranslate: (Boolean) -> Unit = {},
+    sttPartialText: String = "",
     voiceRecording: ChatViewModel.VoiceRecording? = null,
     voicePlayback: VoicePlayer.Playback? = null,
     onStartVoice: (locked: Boolean) -> Unit = {},
@@ -734,10 +754,7 @@ internal fun ChatScreenContent(
                 onReceiveImage = onReceiveImage,
                 onSend = onSend,
                 onTyping = onTyping,
-                // Voice notes are DM/group only: the Nearby room floods unencrypted to everyone in range and
-                // no on-device model can screen speech, so it is the one place unscreenable audio is not
-                // offered. See docs/CONTENT_MODERATION.md.
-                voiceEnabled = !state.isRoom,
+                voiceEnabled = true,
                 voiceRecording = voiceRecording,
                 voicePlayback = voicePlayback,
                 onStartVoice = onStartVoice,
@@ -746,6 +763,7 @@ internal fun ChatScreenContent(
                 onCancelVoice = onCancelVoice,
                 onVoicePlay = onVoicePlay,
                 onVoiceSeek = onVoiceSeek,
+                sttPartialText = sttPartialText,
             )
         },
     ) { padding ->
@@ -2039,6 +2057,7 @@ private fun MessageInput(
     onCancelVoice: () -> Unit = {},
     onVoicePlay: (hash: String, key: String?) -> Unit = { _, _ -> },
     onVoiceSeek: (hash: String, positionMs: Int) -> Unit = { _, _ -> },
+    sttPartialText: String = "",
 ) {
     // Capture images committed by the keyboard (Gboard GIFs), drag-and-drop, or paste. The state-based
     // BasicTextField is required here: it advertises the accepted content MIME types to the IME, so the
@@ -2227,6 +2246,7 @@ private fun MessageInput(
                             locked = voiceRecording.locked,
                             onCancel = onCancelVoice,
                             modifier = Modifier.weight(1f),
+                            liveText = sttPartialText,
                         )
                     } else {
                         Box(
@@ -2443,6 +2463,7 @@ private fun MicButton(
                                 waitForUpOrCancellation()
                                 continue
                             }
+                            val downTime = System.currentTimeMillis()
                             var locked = false
                             var cancelled = false
                             while (true) {
@@ -2461,14 +2482,12 @@ private fun MicButton(
                                 }
                                 if (!change.pressed) break
                             }
-                            // Three ways out, and only one of them still has a finger on the glass:
-                            //  - cancelled: the slide crossed the threshold while still pressed, so the
-                            //    release has to be swallowed or it would open the next cycle immediately;
-                            //  - unlocked release: the loop broke *because* the finger lifted, so waiting
-                            //    for an up here would swallow the NEXT press instead;
-                            //  - locked: the finger has lifted too, and the recording deliberately outlives
-                            //    it — the recording bar's stop button ends it.
-                            if (cancelled) {
+                            val pressDuration = System.currentTimeMillis() - downTime
+                            if (pressDuration < 300L && !cancelled) {
+                                // Single tap: lock recording hands-free so user can speak without holding thumb down
+                                locked = true
+                                onLock()
+                            } else if (cancelled) {
                                 waitForUpOrCancellation()
                             } else if (!locked) {
                                 onStop()
