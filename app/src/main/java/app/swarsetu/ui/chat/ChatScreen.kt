@@ -300,15 +300,17 @@ fun ChatScreen(
 
     LaunchedEffect(sttPartialText) {
         // Show live partial transcription text during recording.
-        if (sttPartialText.isNotBlank()) {
+        // Skip when Live Translate is ON — results are sent over mesh, not shown in input.
+        if (sttPartialText.isNotBlank() && !isLiveTranslateEnabled) {
             inputState.setTextAndPlaceCursorAtEnd(sttPartialText)
         }
     }
 
     LaunchedEffect(sttLatestResult) {
         // When STT completes, place the final transcription in the input field for review.
+        // Skip when Live Translate is ON — the VoiceMessageAdapter sends it over mesh directly.
         val resText = sttLatestResult?.text
-        if (!resText.isNullOrBlank()) {
+        if (!resText.isNullOrBlank() && !isLiveTranslateEnabled) {
             inputState.setTextAndPlaceCursorAtEnd(resText)
         }
     }

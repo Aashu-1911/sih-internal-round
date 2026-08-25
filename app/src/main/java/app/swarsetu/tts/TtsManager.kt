@@ -33,8 +33,9 @@ class TtsManager(
      * Submits a text [request] to be spoken.
      */
     suspend fun speak(request: TtsRequest) {
-        // Try to gain audio focus before starting speech
-        if (audioFocusManager.requestFocus()) {
+        // Try to gain audio focus before starting speech.
+        // Alert requests use alarm-level focus (highest priority, non-interruptible).
+        if (audioFocusManager.requestFocus(isAlert = request.isAlert)) {
             scheduler.submit(request)
         }
     }

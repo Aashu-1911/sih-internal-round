@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.swarsetu.R
 import app.swarsetu.crash.CrashReportRef
@@ -82,6 +83,7 @@ fun DiagnosticsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val health by viewModel.health.collectAsStateWithLifecycle()
     val lastCrash by viewModel.lastCrash.collectAsStateWithLifecycle()
+
     // Inside a NavHost composable the lifecycle owner is this back-stack entry, so this fires again when
     // the crash screen pops — which is how deleting the report over there clears this row over here.
     LifecycleResumeEffect(Unit) {
@@ -105,11 +107,18 @@ fun DiagnosticsScreen(
         }
     }
 
+    val sttState by viewModel.sttState.collectAsState()
+    val sttPartialText by viewModel.sttPartialText.collectAsState()
+    val ttsMetrics by viewModel.ttsMetrics.collectAsState()
+
     DiagnosticsScreenContent(
         state = state,
         health = health,
         lastCrash = lastCrash,
         now = now,
+        sttState = sttState,
+        sttPartialText = sttPartialText,
+        ttsMetrics = ttsMetrics,
         snackbarHostState = snackbarHostState,
         onBack = onBack,
         onRestartMesh = viewModel::restartMesh,
@@ -126,6 +135,9 @@ internal fun DiagnosticsScreenContent(
     health: TransportHealth,
     lastCrash: CrashReportRef?,
     now: Long,
+    sttState: app.swarsetu.stt.SttPipeline.PipelineState?,
+    sttPartialText: String,
+    ttsMetrics: app.swarsetu.tts.TtsMetrics?,
     snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
     onRestartMesh: () -> Unit,
@@ -180,6 +192,26 @@ internal fun DiagnosticsScreenContent(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Text("STT & TTS Voice Pipeline Test (Phase 1-3)")
+                }
+            }
+
+            // STT/TTS live metrics
+            item { SectionHeader("STT / TTS Pipeline") }
+            item {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    MetricRow("STT State", sttState?.name ?: "Not initialized")
+                    if (sttPartialText.isNotBlank()) {
+                        MetricRow("STT Partial", sttPartialText.take(80))
+                    }
+                    ttsMetrics?.let { m ->
+                        MetricRow("TTS Language", m.language.displayName)
+                        MetricRow("TTS Voice", m.voiceName ?: "default")
+                        m.ttfaMs?.let { MetricRow("TTS TTFA", "${it}ms") }
+                        m.rtf?.let { MetricRow("TTS RTF", "%.3f".format(it)) }
+                        MetricRow("TTS Text Length", m.textLength.toString())
+                        if (m.interrupted) MetricRow("TTS Status", "Interrupted")
+                        if (m.error) MetricRow("TTS Error", m.errorMessage ?: "Unknown")
+                    }
                 }
             }
 
@@ -838,6 +870,9 @@ fun DiagnosticsScreenPopulatedPreview() =
             health = TransportHealth.Healthy,
             lastCrash = PREVIEW_CRASH,
             now = PREVIEW_NOW,
+            sttState = null,
+            sttPartialText = "",
+            ttsMetrics = null,
             snackbarHostState = remember { SnackbarHostState() },
             onBack = {},
             onRestartMesh = {},
@@ -860,6 +895,9 @@ fun DiagnosticsScreenEmptyDegradedPreview() =
             health = TransportHealth.Degraded,
             lastCrash = null,
             now = PREVIEW_NOW,
+            sttState = null,
+            sttPartialText = "",
+            ttsMetrics = null,
             snackbarHostState = remember { SnackbarHostState() },
             onBack = {},
             onRestartMesh = {},

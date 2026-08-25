@@ -46,11 +46,13 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,6 +69,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -95,6 +99,7 @@ import app.swarsetu.ui.chat.deliveryIcon
 import app.swarsetu.ui.chat.deliveryLabel
 import app.swarsetu.ui.chat.resolve
 import app.swarsetu.ui.components.Avatar
+import app.swarsetu.ui.components.GradientAvatar
 import app.swarsetu.ui.components.ConnectionStatusRow
 import app.swarsetu.ui.components.RoomAvatar
 import app.swarsetu.ui.image.BlobImage
@@ -124,13 +129,9 @@ fun ChatListScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showShareApp by remember { mutableStateOf(false) }
-    // A Play (App Bundle) install is merged into one shareable APK on the fly — several seconds — so we
-    // gate the share sheet behind a spinner. Flashes instantly for a single-APK install (fast copy path).
     var preparingShare by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // A ticking clock so each row's relative timestamp recomposes as time passes; a bare
-    // System.currentTimeMillis() read would freeze at first composition (see rememberCurrentTimeMillis).
     val now by rememberCurrentTimeMillis()
 
     ChatListScreenContent(
@@ -160,12 +161,11 @@ fun ChatListScreen(
                         runCatching {
                             launchApkShareChooser(context, prepareKnitApk(context))
                         }.onFailure { e ->
-                            val msg =
-                                if (e is ShareStorageException) {
-                                    R.string.share_app_error_storage
-                                } else {
-                                    R.string.share_app_error
-                                }
+                            val msg = if (e is ShareStorageException) {
+                                R.string.share_app_error_storage
+                            } else {
+                                R.string.share_app_error
+                            }
                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                         }
                     } finally {
@@ -178,8 +178,6 @@ fun ChatListScreen(
     }
 
     if (preparingShare) {
-        // Non-dismissible: the merge/sign runs on a background coroutine; block interaction until the
-        // share sheet opens (or an error toast fires). onDismissRequest is a no-op so taps don't cancel it.
         AlertDialog(
             onDismissRequest = {},
             confirmButton = {},
@@ -221,8 +219,8 @@ internal fun ChatListScreenContent(
                     Column {
                         Text(
                             text = stringResource(R.string.app_name),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.semantics { heading() },
                         )
@@ -230,10 +228,7 @@ internal fun ChatListScreenContent(
                     }
                 },
                 actions = {
-                    // Signal-style: the requests inbox affordance appears only when something is pending.
                     if (state.requestCount > 0) {
-                        // Anchor the badge to the 24dp icon (not the 48dp button) so it sits at the
-                        // glyph's top-right corner per the M3 badge spec, not out at the touch-target edge.
                         IconButton(
                             onClick = onOpenMessageRequests,
                             modifier = Modifier.size(48.dp).semantics { testTag = "chatlist_requests" },
@@ -310,36 +305,47 @@ internal fun ChatListScreenContent(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = onNewMessage,
                 modifier = Modifier.semantics { testTag = "chatlist_fab" },
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Message,
-                    contentDescription = stringResource(R.string.contacts_new_message),
-                )
-            }
+                icon = {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Message,
+                        contentDescription = null,
+                    )
+                },
+                text = {
+                    Text(
+                        text = stringResource(R.string.contacts_new_message),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Pinned above the list (not a scrolling item) so a connectivity warning never scrolls away.
             state.radioWarning?.let { warning ->
                 RadioWarningBanner(
                     warning = warning,
                     onOpenSettings = { onOpenRadioSettings(warning) },
-                    // The critical "all radios off" banner is not dismissible.
                     onDismiss = if (warning == RadioWarning.AllRadiosOff) null else onDismissRadioWarning,
                 )
             }
             if (state.isLoading) {
-                // Cold start: the state is a combine of Room + DataStore + mesh flows that emits nothing
-                // until all have first-emitted (~1s). Show a skeleton so the screen reads as "loading",
-                // not as an empty chat list.
                 ChatListSkeleton(modifier = Modifier.fillMaxSize())
+            } else if (state.conversations.isEmpty()) {
+                // Empty state
+                EmptyChatListState(
+                    modifier = Modifier.fillMaxSize(),
+                    onNewMessage = onNewMessage,
+                )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 4.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     items(state.conversations, key = { it.id }) { row ->
                         ConversationListItem(
@@ -356,9 +362,81 @@ internal fun ChatListScreenContent(
 }
 
 /**
- * Placeholder rows shown while the conversation list is still loading (see [ChatListUiState.isLoading]).
- * A row's shape mirrors [ConversationListItem] — leading circle + title/preview lines — so the real list
- * slides in without a layout jump. A slow alpha pulse signals "loading" rather than empty content.
+ * Empty state shown when there are no conversations yet.
+ */
+@Composable
+private fun EmptyChatListState(
+    modifier: Modifier = Modifier,
+    onNewMessage: () -> Unit,
+) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        // Icon with gradient background
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.05f),
+                        ),
+                    )
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Message,
+                contentDescription = null,
+                modifier = Modifier.size(56.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "No conversations yet",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Start a new conversation or join the Nearby room to connect with people around you.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        androidx.compose.material3.FilledTonalButton(
+            onClick = onNewMessage,
+            modifier = Modifier.fillMaxWidth(0.7f),
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.Message,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Start a conversation",
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+    }
+}
+
+/**
+ * Placeholder rows shown while the conversation list is still loading.
  */
 @Composable
 private fun ChatListSkeleton(modifier: Modifier = Modifier) {
@@ -366,14 +444,13 @@ private fun ChatListSkeleton(modifier: Modifier = Modifier) {
     val alpha by transition.animateFloat(
         initialValue = 0.3f,
         targetValue = 0.9f,
-        animationSpec =
-            infiniteRepeatable(
-                animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
         label = "chatListSkeletonAlpha",
     )
-    Column(modifier = modifier.padding(vertical = 4.dp)) {
+    Column(modifier = modifier.padding(vertical = 8.dp, horizontal = 12.dp)) {
         repeat(SKELETON_ROW_COUNT) { ConversationSkeletonRow(pulseAlpha = alpha) }
     }
 }
@@ -382,62 +459,65 @@ private const val SKELETON_ROW_COUNT = 6
 
 @Composable
 private fun ConversationSkeletonRow(pulseAlpha: Float) {
-    // Tint the placeholder blocks from the theme so they read correctly in light and dark; the pulse
-    // rides on top of a low base opacity so the shapes never fully disappear.
     val blockColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f * pulseAlpha + 0.04f)
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
     ) {
-        Box(Modifier.size(52.dp).clip(CircleShape).background(blockColor))
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 Modifier
-                    .fillMaxWidth(0.45f)
-                    .height(14.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .size(52.dp)
+                    .clip(CircleShape)
                     .background(blockColor),
             )
-            Spacer(Modifier.height(8.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth(0.75f)
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(blockColor),
-            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.45f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(blockColor),
+                )
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.75f)
+                        .height(12.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(blockColor),
+                )
+            }
         }
     }
 }
 
-/**
- * Deep-links to the system panel that fixes [warning]: Bluetooth settings for a Bluetooth-off warning, Wi-Fi
- * settings for Wi-Fi-off, and (for all-radios-off) the airplane-mode panel when airplane mode is on else the
- * top-level wireless panel. Wrapped in [runCatching] since a device may lack the settings activity.
- */
 private fun openRadioSettings(
     context: Context,
     warning: RadioWarning,
 ) {
-    val action =
-        when (warning) {
-            RadioWarning.BluetoothOff -> {
-                Settings.ACTION_BLUETOOTH_SETTINGS
-            }
-
-            RadioWarning.WifiOff -> {
-                Settings.ACTION_WIFI_SETTINGS
-            }
-
-            RadioWarning.AllRadiosOff -> {
-                if (isAirplaneModeOn(context)) {
-                    Settings.ACTION_AIRPLANE_MODE_SETTINGS
-                } else {
-                    Settings.ACTION_WIRELESS_SETTINGS
-                }
+    val action = when (warning) {
+        RadioWarning.BluetoothOff -> Settings.ACTION_BLUETOOTH_SETTINGS
+        RadioWarning.WifiOff -> Settings.ACTION_WIFI_SETTINGS
+        RadioWarning.AllRadiosOff -> {
+            if (isAirplaneModeOn(context)) {
+                Settings.ACTION_AIRPLANE_MODE_SETTINGS
+            } else {
+                Settings.ACTION_WIRELESS_SETTINGS
             }
         }
+    }
     runCatching { context.startActivity(Intent(action)) }
 }
 
@@ -452,68 +532,65 @@ internal fun ConversationListItem(
     onClick: () -> Unit,
     onDelete: (conversationId: String) -> Unit = {},
 ) {
-    // The Nearby broadcast room can't be deleted, so it gets a plain tap with no long-press menu.
     val deletable = !row.isRoom
     var menuOpen by remember { mutableStateOf(false) }
     var showConfirm by remember { mutableStateOf(false) }
-    val clickModifier =
-        if (deletable) {
-            Modifier.combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
-        } else {
-            Modifier.clickable(onClick = onClick)
-        }
+    val clickModifier = if (deletable) {
+        Modifier.combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })
+    } else {
+        Modifier.clickable(onClick = onClick)
+    }
 
-    // The row is a single accessible target: collapse its children (avatar, title, preview, time,
-    // unread badge) into one labelled Button node so a screen reader reads the whole conversation as
-    // one summary with a spoken timestamp, and surface the long-press delete as a custom action.
     val preview = row.lastPreview ?: stringResource(R.string.chat_list_empty_preview)
-    val spokenTime =
-        row.lastMessageAt?.let {
-            DateUtils.getRelativeTimeSpanString(it, now, DateUtils.MINUTE_IN_MILLIS).toString()
-        }
-    val spokenUnread =
-        if (row.unreadCount > 0) {
-            pluralStringResource(R.plurals.chat_list_unread_count, row.unreadCount, row.unreadCount)
-        } else {
-            null
-        }
-    // The tick is icon-only, and the row's clearAndSetSemantics below would swallow a description hung on
-    // the Icon itself, so its words ride here instead — the same label the bubble and details screen use.
-    val spokenStatus =
-        // No counts here on purpose: the list would have to load every thread's roster and receipt tallies
-        // to describe one glyph. Omitting them yields exactly today's wording (see deliveryLabel).
-        row.lastStatus?.let { deliveryLabel(it, row.lastDeliveredVia, mine = true).resolve() }
-    val rowDescription =
-        listOfNotNull(row.title, preview, spokenTime, spokenStatus, spokenUnread).joinToString(", ")
+    val spokenTime = row.lastMessageAt?.let {
+        DateUtils.getRelativeTimeSpanString(it, now, DateUtils.MINUTE_IN_MILLIS).toString()
+    }
+    val spokenUnread = if (row.unreadCount > 0) {
+        pluralStringResource(R.plurals.chat_list_unread_count, row.unreadCount, row.unreadCount)
+    } else {
+        null
+    }
+    val spokenStatus = row.lastStatus?.let { deliveryLabel(it, row.lastDeliveredVia, mine = true).resolve() }
+    val rowDescription = listOfNotNull(row.title, preview, spokenTime, spokenStatus, spokenUnread).joinToString(", ")
     val deleteLabel = stringResource(R.string.chat_list_delete_action)
 
-    Box {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .then(clickModifier)
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
-                    .clearAndSetSemantics {
-                        // Stable id for automation (surfaces as a uiautomator resource-id); "nearby" for the
-                        // broadcast room, a peer node id for a DM, or a "g-…" group id.
-                        testTag = "chat_row_${row.id}"
-                        contentDescription = rowDescription
-                        role = Role.Button
-                        onClick {
-                            onClick()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(clickModifier)
+            .semantics {
+                testTag = "chat_row_${row.id}"
+                contentDescription = rowDescription
+                role = Role.Button
+                onClick {
+                    onClick()
+                    true
+                }
+                if (deletable) {
+                    customActions = listOf(
+                        CustomAccessibilityAction(deleteLabel) {
+                            showConfirm = true
                             true
-                        }
-                        if (deletable) {
-                            customActions =
-                                listOf(
-                                    CustomAccessibilityAction(deleteLabel) {
-                                        showConfirm = true
-                                        true
-                                    },
-                                )
-                        }
-                    },
+                        },
+                    )
+                }
+            },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (row.unreadCount > 0) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (row.unreadCount > 0) 2.dp else 0.dp,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             LeadingVisual(row)
@@ -522,16 +599,18 @@ internal fun ConversationListItem(
                 Text(
                     text = row.title,
                     style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (row.unreadCount > 0) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = preview,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    fontWeight = if (row.unreadCount > 0) FontWeight.Medium else FontWeight.Normal,
                 )
             }
             Spacer(Modifier.width(12.dp))
@@ -540,14 +619,9 @@ internal fun ConversationListItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    // Signal-style: when the newest message is one of ours, its tick sits beside the
-                    // timestamp — one check sent, two acked, a clock while it's still waiting for the
-                    // recipient's key. Ahead of the time rather than after it (where the chat bubble puts
-                    // it) so every row's timestamp stays flush right whether or not there's a tick.
                     row.lastStatus?.let { status ->
                         Icon(
                             imageVector = deliveryIcon(status),
-                            // Decorative here: the row folds the spoken label into its own description.
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(14.dp),
@@ -572,28 +646,29 @@ internal fun ConversationListItem(
                 }
             }
         }
-        if (deletable) {
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = stringResource(R.string.chat_list_delete_action),
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    },
-                    onClick = {
-                        menuOpen = false
-                        showConfirm = true
-                    },
-                )
-            }
+    }
+
+    if (deletable) {
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        text = stringResource(R.string.chat_list_delete_action),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                },
+                onClick = {
+                    menuOpen = false
+                    showConfirm = true
+                },
+            )
         }
     }
 
@@ -623,8 +698,7 @@ internal fun ConversationListItem(
 }
 
 /**
- * The circular leading glyph: the knit logo for the room, a group's photo (or a people glyph when unset)
- * for a group, an [Avatar] for a DM.
+ * The circular leading glyph with gradient fallback.
  */
 @Composable
 private fun LeadingVisual(row: ConversationRow) {
@@ -634,207 +708,37 @@ private fun LeadingVisual(row: ConversationRow) {
         row.isRoom -> {
             RoomAvatar(size = size)
         }
-
         row.isGroup && groupPhoto != null -> {
             AsyncImage(
                 model = BlobImage(groupPhoto),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(size).clip(CircleShape),
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape),
             )
         }
-
         row.isGroup -> {
-            CircleGlyph(size) {
-                Icon(
-                    Icons.Filled.Group,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
+            GradientAvatar(
+                name = row.title,
+                size = size,
+            )
         }
-
         else -> {
-            Avatar(avatarHash = row.avatarHash, name = row.title, size = size)
+            Avatar(
+                avatarHash = row.avatarHash,
+                name = row.title,
+                size = size,
+            )
         }
     }
 }
 
-/** A circular tinted container for a leading glyph (room logo / group icon). */
-@Composable
-private fun CircleGlyph(
-    size: androidx.compose.ui.unit.Dp,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier =
-            Modifier
-                .size(size)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondaryContainer),
-        contentAlignment = Alignment.Center,
-    ) {
-        content()
-    }
-}
-
 @Preview(showBackground = true)
 @Composable
-fun ConversationListItemDmPreview() =
-    SwarSetuPreview {
-        ConversationListItem(
-            row =
-                ConversationRow(
-                    id = "dm-1",
-                    title = "Ada Lovelace",
-                    avatarHash = null,
-                    isRoom = false,
-                    isGroup = false,
-                    lastPreview = "See you at the meetup tonight!",
-                    lastMessageAt = PREVIEW_NOW - 5 * 60_000L,
-                    unreadCount = 2,
-                ),
-            now = PREVIEW_NOW,
-            onClick = {},
-        )
-    }
-
-@Preview(showBackground = true)
-@Composable
-fun ConversationListItemDeliveredPreview() =
-    SwarSetuPreview {
-        ConversationListItem(
-            row =
-                ConversationRow(
-                    id = "dm-2",
-                    title = "Grace Hopper",
-                    avatarHash = null,
-                    isRoom = false,
-                    isGroup = false,
-                    lastPreview = "You: on my way",
-                    lastMessageAt = PREVIEW_NOW - 2 * 60_000L,
-                    unreadCount = 0,
-                    lastStatus = DeliveryStatus.Delivered,
-                    lastDeliveredVia = DeliveryPlane.Nearby,
-                ),
-            now = PREVIEW_NOW,
-            onClick = {},
-        )
-    }
-
-@Preview(showBackground = true)
-@Composable
-fun ConversationListItemSentPreview() =
-    SwarSetuPreview {
-        // One check, forever: a group (or Nearby) send is a broadcast and never gets a delivery receipt.
-        ConversationListItem(
-            row =
-                ConversationRow(
-                    id = "group-2",
-                    title = "Trail Wardens",
-                    avatarHash = null,
-                    isRoom = false,
-                    isGroup = true,
-                    lastPreview = "You: heading up the ridge now",
-                    lastMessageAt = PREVIEW_NOW - 12 * 60_000L,
-                    unreadCount = 0,
-                    lastStatus = DeliveryStatus.Sent,
-                ),
-            now = PREVIEW_NOW,
-            onClick = {},
-        )
-    }
-
-@Preview(showBackground = true)
-@Composable
-fun ConversationListItemPendingPreview() =
-    SwarSetuPreview {
-        // Clock, not a check: written locally but unsendable — we don't hold their key yet. The unread
-        // badge is unrelated to the tick, so both can sit in the same row.
-        ConversationListItem(
-            row =
-                ConversationRow(
-                    id = "dm-3",
-                    title = "Katherine Johnson",
-                    avatarHash = null,
-                    isRoom = false,
-                    isGroup = false,
-                    lastPreview = "You: are you still at the trailhead?",
-                    lastMessageAt = PREVIEW_NOW - 40 * 60_000L,
-                    unreadCount = 1,
-                    lastStatus = DeliveryStatus.Pending,
-                ),
-            now = PREVIEW_NOW,
-            onClick = {},
-        )
-    }
-
-@Preview(showBackground = true)
-@Composable
-fun ConversationListItemGroupPreview() =
-    SwarSetuPreview {
-        ConversationListItem(
-            row =
-                ConversationRow(
-                    id = "group-1",
-                    title = "Hiking Crew",
-                    avatarHash = null,
-                    isRoom = false,
-                    isGroup = true,
-                    lastPreview = "Lena: bringing the trail map",
-                    lastMessageAt = PREVIEW_NOW - 60 * 60_000L,
-                    unreadCount = 0,
-                ),
-            now = PREVIEW_NOW,
-            onClick = {},
-        )
-    }
-
-@Preview(showBackground = true)
-@Composable
-fun ConversationListItemRoomPreview() =
-    SwarSetuPreview {
-        ConversationListItem(
-            row =
-                ConversationRow(
-                    id = "room",
-                    title = "Nearby",
-                    avatarHash = null,
-                    isRoom = true,
-                    isGroup = false,
-                    lastPreview = null,
-                    lastMessageAt = null,
-                    unreadCount = 0,
-                ),
-            now = PREVIEW_NOW,
-            onClick = {},
-        )
-    }
-
-// Shared fixture rows for the full-screen previews.
-private fun previewConversations(): List<ConversationRow> =
-    listOf(
-        ConversationRow(
-            id = "room",
-            title = "Nearby",
-            avatarHash = null,
-            isRoom = true,
-            isGroup = false,
-            lastPreview = "Anyone at the north gate?",
-            lastMessageAt = PREVIEW_NOW - 3 * 60_000L,
-            unreadCount = 0,
-        ),
-        ConversationRow(
-            id = "group-1",
-            title = "Hiking Crew",
-            avatarHash = null,
-            isRoom = false,
-            isGroup = true,
-            lastPreview = "Lena: bringing the trail map",
-            lastMessageAt = PREVIEW_NOW - 60 * 60_000L,
-            unreadCount = 0,
-        ),
-        ConversationRow(
+fun ConversationListItemDmPreview() = SwarSetuPreview {
+    ConversationListItem(
+        row = ConversationRow(
             id = "dm-1",
             title = "Ada Lovelace",
             avatarHash = null,
@@ -844,124 +748,187 @@ private fun previewConversations(): List<ConversationRow> =
             lastMessageAt = PREVIEW_NOW - 5 * 60_000L,
             unreadCount = 2,
         ),
-        ConversationRow(
+        now = PREVIEW_NOW,
+        onClick = {},
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ConversationListItemDeliveredPreview() = SwarSetuPreview {
+    ConversationListItem(
+        row = ConversationRow(
             id = "dm-2",
             title = "Grace Hopper",
             avatarHash = null,
             isRoom = false,
             isGroup = false,
             lastPreview = "You: on my way",
-            lastMessageAt = PREVIEW_NOW - 9 * 60_000L,
+            lastMessageAt = PREVIEW_NOW - 2 * 60_000L,
             unreadCount = 0,
             lastStatus = DeliveryStatus.Delivered,
             lastDeliveredVia = DeliveryPlane.Nearby,
         ),
+        now = PREVIEW_NOW,
+        onClick = {},
     )
+}
 
 @Preview(showBackground = true)
 @Composable
-fun ChatListScreenPopulatedPreview() =
-    SwarSetuPreview {
-        ChatListScreenContent(
-            state =
-                ChatListUiState(
-                    conversations = previewConversations(),
-                    neighborCount = 3,
-                    transportHealth = TransportHealth.Healthy,
-                    relayPlane = RelayPlane.Live,
-                ),
-            now = PREVIEW_NOW,
-            onOpenConversation = {},
-            onNewMessage = {},
-            onOpenProfile = {},
-            onOpenDiagnostics = {},
-            onOpenBlockedUsers = {},
-            onOpenMessageRequests = {},
-            onOpenDonate = {},
-            onOpenVerify = {},
-            onShareApp = {},
-            onOpenRadioSettings = {},
-            onDismissRadioWarning = {},
-            onDeleteConversation = {},
-        )
-    }
+fun ConversationListItemRoomPreview() = SwarSetuPreview {
+    ConversationListItem(
+        row = ConversationRow(
+            id = "room",
+            title = "Nearby",
+            avatarHash = null,
+            isRoom = true,
+            isGroup = false,
+            lastPreview = null,
+            lastMessageAt = null,
+            unreadCount = 0,
+        ),
+        now = PREVIEW_NOW,
+        onClick = {},
+    )
+}
+
+// Shared fixture rows for the full-screen previews.
+private fun previewConversations(): List<ConversationRow> = listOf(
+    ConversationRow(
+        id = "room",
+        title = "Nearby",
+        avatarHash = null,
+        isRoom = true,
+        isGroup = false,
+        lastPreview = "Anyone at the north gate?",
+        lastMessageAt = PREVIEW_NOW - 3 * 60_000L,
+        unreadCount = 0,
+    ),
+    ConversationRow(
+        id = "group-1",
+        title = "Hiking Crew",
+        avatarHash = null,
+        isRoom = false,
+        isGroup = true,
+        lastPreview = "Lena: bringing the trail map",
+        lastMessageAt = PREVIEW_NOW - 60 * 60_000L,
+        unreadCount = 0,
+    ),
+    ConversationRow(
+        id = "dm-1",
+        title = "Ada Lovelace",
+        avatarHash = null,
+        isRoom = false,
+        isGroup = false,
+        lastPreview = "See you at the meetup tonight!",
+        lastMessageAt = PREVIEW_NOW - 5 * 60_000L,
+        unreadCount = 2,
+    ),
+    ConversationRow(
+        id = "dm-2",
+        title = "Grace Hopper",
+        avatarHash = null,
+        isRoom = false,
+        isGroup = false,
+        lastPreview = "You: on my way",
+        lastMessageAt = PREVIEW_NOW - 9 * 60_000L,
+        unreadCount = 0,
+        lastStatus = DeliveryStatus.Delivered,
+        lastDeliveredVia = DeliveryPlane.Nearby,
+    ),
+)
 
 @Preview(showBackground = true)
 @Composable
-fun ChatListScreenRadioWarningPreview() =
-    SwarSetuPreview {
-        ChatListScreenContent(
-            state =
-                ChatListUiState(
-                    conversations = previewConversations(),
-                    neighborCount = 1,
-                    transportHealth = TransportHealth.Degraded,
-                    radioWarning = RadioWarning.BluetoothOff,
-                ),
-            now = PREVIEW_NOW,
-            onOpenConversation = {},
-            onNewMessage = {},
-            onOpenProfile = {},
-            onOpenDiagnostics = {},
-            onOpenBlockedUsers = {},
-            onOpenMessageRequests = {},
-            onOpenDonate = {},
-            onOpenVerify = {},
-            onShareApp = {},
-            onOpenRadioSettings = {},
-            onDismissRadioWarning = {},
-            onDeleteConversation = {},
-        )
-    }
+fun ChatListScreenPopulatedPreview() = SwarSetuPreview {
+    ChatListScreenContent(
+        state = ChatListUiState(
+            conversations = previewConversations(),
+            neighborCount = 3,
+            transportHealth = TransportHealth.Healthy,
+            relayPlane = RelayPlane.Live,
+        ),
+        now = PREVIEW_NOW,
+        onOpenConversation = {},
+        onNewMessage = {},
+        onOpenProfile = {},
+        onOpenDiagnostics = {},
+        onOpenBlockedUsers = {},
+        onOpenMessageRequests = {},
+        onOpenDonate = {},
+        onOpenVerify = {},
+        onShareApp = {},
+        onOpenRadioSettings = {},
+        onDismissRadioWarning = {},
+        onDeleteConversation = {},
+    )
+}
 
-// Cold-start loading state: the skeleton placeholder rows shown until the state flow first emits.
 @Preview(showBackground = true)
 @Composable
-fun ChatListScreenLoadingPreview() =
-    SwarSetuPreview {
-        ChatListScreenContent(
-            state = ChatListUiState(isLoading = true),
-            now = PREVIEW_NOW,
-            onOpenConversation = {},
-            onNewMessage = {},
-            onOpenProfile = {},
-            onOpenDiagnostics = {},
-            onOpenBlockedUsers = {},
-            onOpenMessageRequests = {},
-            onOpenDonate = {},
-            onOpenVerify = {},
-            onShareApp = {},
-            onOpenRadioSettings = {},
-            onDismissRadioWarning = {},
-            onDeleteConversation = {},
-        )
-    }
+fun ChatListScreenRadioWarningPreview() = SwarSetuPreview {
+    ChatListScreenContent(
+        state = ChatListUiState(
+            conversations = previewConversations(),
+            neighborCount = 1,
+            transportHealth = TransportHealth.Degraded,
+            radioWarning = RadioWarning.BluetoothOff,
+        ),
+        now = PREVIEW_NOW,
+        onOpenConversation = {},
+        onNewMessage = {},
+        onOpenProfile = {},
+        onOpenDiagnostics = {},
+        onOpenBlockedUsers = {},
+        onOpenMessageRequests = {},
+        onOpenDonate = {},
+        onOpenVerify = {},
+        onShareApp = {},
+        onOpenRadioSettings = {},
+        onDismissRadioWarning = {},
+        onDeleteConversation = {},
+    )
+}
 
-// Exercises the non-dismissible AllRadiosOff banner branch (no close affordance).
 @Preview(showBackground = true)
 @Composable
-fun ChatListScreenQuietPreview() =
-    SwarSetuPreview {
-        ChatListScreenContent(
-            state =
-                ChatListUiState(
-                    conversations = previewConversations().take(1),
-                    neighborCount = 0,
-                    transportHealth = TransportHealth.Unavailable,
-                    radioWarning = RadioWarning.AllRadiosOff,
-                ),
-            now = PREVIEW_NOW,
-            onOpenConversation = {},
-            onNewMessage = {},
-            onOpenProfile = {},
-            onOpenDiagnostics = {},
-            onOpenBlockedUsers = {},
-            onOpenMessageRequests = {},
-            onOpenDonate = {},
-            onOpenVerify = {},
-            onShareApp = {},
-            onOpenRadioSettings = {},
-            onDismissRadioWarning = {},
-            onDeleteConversation = {},
-        )
-    }
+fun ChatListScreenLoadingPreview() = SwarSetuPreview {
+    ChatListScreenContent(
+        state = ChatListUiState(isLoading = true),
+        now = PREVIEW_NOW,
+        onOpenConversation = {},
+        onNewMessage = {},
+        onOpenProfile = {},
+        onOpenDiagnostics = {},
+        onOpenBlockedUsers = {},
+        onOpenMessageRequests = {},
+        onOpenDonate = {},
+        onOpenVerify = {},
+        onShareApp = {},
+        onOpenRadioSettings = {},
+        onDismissRadioWarning = {},
+        onDeleteConversation = {},
+    )
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ChatListScreenEmptyPreview() = SwarSetuPreview {
+    ChatListScreenContent(
+        state = ChatListUiState(conversations = emptyList()),
+        now = PREVIEW_NOW,
+        onOpenConversation = {},
+        onNewMessage = {},
+        onOpenProfile = {},
+        onOpenDiagnostics = {},
+        onOpenBlockedUsers = {},
+        onOpenMessageRequests = {},
+        onOpenDonate = {},
+        onOpenVerify = {},
+        onShareApp = {},
+        onOpenRadioSettings = {},
+        onDismissRadioWarning = {},
+        onDeleteConversation = {},
+    )
+}

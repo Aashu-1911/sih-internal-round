@@ -135,7 +135,8 @@ class DefaultVoiceConversationController(
         )
         
         ttsManager.speak(request)
-        // Transition back to IDLE after queueing (a more robust state sync would listen to TTS engine callbacks)
+        // Transition back to IDLE after queueing.
+        // TODO: Listen to TtsMetricsCollector completion for accurate SPEAKING→IDLE transition.
         _state.value = VoiceState.IDLE
     }
 
@@ -200,3 +201,5 @@ fun SttLanguage.toTtsLanguage(): TtsLanguage? {
         SttLanguage.ENGLISH -> TtsLanguage.ENGLISH
     }
 }
+
+private const val SPEAKING_TIMEOUT_MS = 10_000L

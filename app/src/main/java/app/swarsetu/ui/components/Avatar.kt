@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -36,16 +37,27 @@ import coil3.compose.AsyncImage
 import java.text.BreakIterator
 
 /**
+ * Predefined gradient color pairs for avatar fallbacks.
+ * Cycles through these when no avatar image is available.
+ */
+private val avatarGradientPairs = listOf(
+    Color(0xFF0D9488) to Color(0xFF14B8A6),  // Teal
+    Color(0xFF7C3AED) to Color(0xFF8B5CF6),  // Violet
+    Color(0xFF2563EB) to Color(0xFF3B82F6),  // Blue
+    Color(0xFFDC2626) to Color(0xFFEF4444),  // Red
+    Color(0xFFD97706) to Color(0xFFF59E0B),  // Amber
+    Color(0xFF059669) to Color(0xFF10B981),  // Emerald
+    Color(0xFF9333EA) to Color(0xFFA855F7),  // Purple
+    Color(0xFFEA580C) to Color(0xFFF97316),  // Orange
+)
+
+/**
  * A circular avatar shared by the chat rows and the profile screen. Renders the avatar blob with
  * content hash [avatarHash] (loaded from the encrypted store via Coil) when present, otherwise a
- * colored circle with the first letter of [name]. Source avatars are stored 256² (see AvatarStore),
- * so larger [size]s stay crisp. When [onClick] is non-null the whole circle is tappable, with a
- * circular ripple.
+ * gradient circle with the first letter of [name].
  *
- * Accessibility: the image/initial is decorative on its own, so pass [contentDescription] to give
- * the avatar an accessible name (do this when [onClick] is set, so the tappable target is
- * announced). When [onClick] is set the touch target grows to the 48dp minimum without enlarging
- * the visible circle, and [onClickLabel] describes the action (e.g. "view profile").
+ * @param showOnlineIndicator When true, displays a green dot in the bottom-right corner
+ *   indicating the user is currently online on the mesh.
  */
 @Composable
 fun Avatar(
@@ -59,35 +71,31 @@ fun Avatar(
     contentDescription: String? = null,
     onClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
+    showOnlineIndicator: Boolean = false,
 ) {
     Box(
-        modifier =
-            modifier
-                .then(if (onClick != null) Modifier.minimumInteractiveComponentSize() else Modifier)
-                .size(size)
-                .clip(CircleShape)
-                .background(background)
-                .then(
-                    if (onClick != null) {
-                        Modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
-                    } else {
-                        Modifier
-                    },
-                ).then(
-                    if (contentDescription != null) {
-                        Modifier.semantics { this.contentDescription = contentDescription }
-                    } else {
-                        Modifier
-                    },
-                ),
+        modifier = modifier
+            .then(if (onClick != null) Modifier.minimumInteractiveComponentSize() else Modifier)
+            .size(size)
+            .clip(CircleShape)
+            .background(background)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else {
+                    Modifier
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        // Show the avatar image when its blob is present; fall back to the initial letter otherwise.
-        // "Otherwise" includes a *dangling* hash — one whose content-addressed blob is gone (GC'd, or
-        // lost to a DB wipe) while the hash itself lingers in DataStore. AsyncImage
-        // draws nothing on a failed load, so without the onError fallback a dangling hash renders a
-        // permanently blank circle with no initial (the own-profile avatar hit this; a peer's hash is
-        // null until known, so chat rows never did). Keyed on [avatarHash] so a fresh hash retries.
+        // Show the avatar image when its blob is present; fall back to gradient + initial otherwise.
         var imageFailed by remember(avatarHash) { mutableStateOf(false) }
         if (avatarHash != null && !imageFailed) {
             AsyncImage(
@@ -98,18 +106,97 @@ fun Avatar(
                 onError = { imageFailed = true },
             )
         } else {
-            AvatarInitial(name = name, size = size, textStyle = textStyle, contentColor = contentColor)
+            AvatarInitial(
+                name = name,
+                size = size,
+                textStyle = textStyle,
+                contentColor = contentColor,
+            )
+        }
+
+        // Online indicator dot
+        if (showOnlineIndicator) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(size * 0.25f)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.tertiary)
+                    .semantics { this.contentDescription = "Online" },
+            )
+        }
+    }
+}
+
+/**
+ * Avatar with gradient background fallback based on name hash.
+ * Provides more visual variety than a solid color.
+ */
+@Composable
+fun GradientAvatar(
+    name: String,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null,
+    onClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
+    showOnlineIndicator: Boolean = false,
+) {
+    val gradientIndex = remember(name) {
+        name.hashCode().let { hash ->
+            if (hash == Int.MIN_VALUE) 0 else kotlin.math.abs(hash) % avatarGradientPairs.size
+        }
+    }
+    val (colorStart, colorEnd) = avatarGradientPairs[gradientIndex]
+
+    Box(
+        modifier = modifier
+            .then(if (onClick != null) Modifier.minimumInteractiveComponentSize() else Modifier)
+            .size(size)
+            .clip(CircleShape)
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(colorStart, colorEnd),
+                )
+            )
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                } else {
+                    Modifier
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        AvatarInitial(
+            name = name,
+            size = size,
+            textStyle = MaterialTheme.typography.labelLarge,
+            contentColor = Color.White,
+        )
+
+        if (showOnlineIndicator) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(size * 0.25f)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.tertiary),
+            )
         }
     }
 }
 
 /**
  * The fallback shown when there's no usable avatar image: a single uppercased initial of [name],
- * centered in the circle. Scaled to ~half the circle's diameter (Google/Signal-style fill) instead of
- * a fixed type ramp that looks tiny in large avatars — the size is derived from the dp diameter via
- * [androidx.compose.ui.unit.Dp.toSp] so it ignores the user's font scale and always fits the fixed-size
- * circle. The inherited lineHeight is reset so the (now much larger) glyph isn't clipped by the base
- * style's box.
+ * centered in the circle.
  */
 @Composable
 private fun AvatarInitial(
@@ -124,7 +211,6 @@ private fun AvatarInitial(
         style = textStyle.copy(fontSize = initialSize, lineHeight = TextUnit.Unspecified),
         color = contentColor,
         textAlign = TextAlign.Center,
-        // Decorative: the Box (or an adjacent name label) carries the accessible name.
         modifier = Modifier.clearAndSetSemantics {},
     )
 }
@@ -132,12 +218,6 @@ private fun AvatarInitial(
 /**
  * The leading user-perceived character of [name] for the fallback avatar, uppercased — or "?" when
  * [name] is blank.
- *
- * Uses a grapheme [BreakIterator] rather than [String.firstOrNull] so a leading emoji survives
- * intact. An emoji is at least a UTF-16 surrogate pair and is often a multi-codepoint cluster (ZWJ
- * sequence, skin-tone modifier, or a regional-indicator flag pair); taking the first `Char` would
- * slice off a lone surrogate that the font then draws as a missing-glyph "?". The iterator advances
- * by extended grapheme cluster (ICU-backed on Android), so the whole cluster is taken as one unit.
  */
 private fun avatarInitial(name: String): String {
     val trimmed = name.trimStart()
@@ -148,18 +228,20 @@ private fun avatarInitial(name: String): String {
     return grapheme.uppercase()
 }
 
-// Previews use the initial-letter fallback (avatarHash = null); a real hash would render through Coil,
-// which has no DB-backed blob bytes in a preview and so would only show a placeholder.
 @Preview(showBackground = true)
 @Composable
-fun AvatarInitialPreview() =
-    SwarSetuPreview {
-        Avatar(avatarHash = null, name = "Ada Lovelace", size = 40.dp)
-    }
+fun AvatarInitialPreview() = SwarSetuPreview {
+    Avatar(avatarHash = null, name = "Ada Lovelace", size = 40.dp)
+}
 
 @Preview(showBackground = true)
 @Composable
-fun AvatarLargeEmojiPreview() =
-    SwarSetuPreview {
-        Avatar(avatarHash = null, name = "🦊 Fox", size = 96.dp)
-    }
+fun AvatarLargeEmojiPreview() = SwarSetuPreview {
+    Avatar(avatarHash = null, name = "🦊 Fox", size = 96.dp)
+}
+
+@Preview(showBackground = true)
+@Composable
+fun GradientAvatarPreview() = SwarSetuPreview {
+    GradientAvatar(name = "Test User", size = 64.dp, showOnlineIndicator = true)
+}

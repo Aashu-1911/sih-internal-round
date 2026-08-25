@@ -259,6 +259,20 @@ class ChatViewModel(
     fun toggleLiveTranslate(enabled: Boolean) {
         _isLiveTranslateEnabled.value = enabled
         voiceController.isMeshEnabled = enabled
+        if (enabled) {
+            // Set up VoiceMessageAdapter routing context so STT results are sent over mesh.
+            viewModelScope.launch {
+                val sttLang = selectedSttLanguage.value
+                val group = if (isRoom) null else groups.find(conversationId)
+                voiceMessageAdapter.startVoiceMessage(
+                    language = sttLang,
+                    recipientId = if (isRoom) null else conversationId,
+                    group = group?.toGroupInfo(),
+                )
+            }
+        } else {
+            voiceMessageAdapter.stopVoiceMessage()
+        }
     }
 
     // Built lazily so a chat that never records never opens a recorder, and torn down in onCleared: the

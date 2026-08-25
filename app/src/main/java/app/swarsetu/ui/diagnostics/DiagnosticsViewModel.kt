@@ -75,6 +75,8 @@ class DiagnosticsViewModel(
     private val metrics: MeshMetrics,
     relayStatus: RelayStatusRepository,
     private val crashes: CrashReports,
+    private val sttPipeline: app.swarsetu.stt.SttPipeline? = null,
+    private val ttsMetricsCollector: app.swarsetu.tts.metrics.TtsMetricsCollector? = null,
 ) : ViewModel() {
     private val myNodeId = MutableStateFlow<String?>(null)
 
@@ -90,6 +92,21 @@ class DiagnosticsViewModel(
         viewModelScope.launch { myNodeId.value = identity.nodeId() }
         refreshLastCrash()
     }
+
+    /** Live STT pipeline state — null when STT is not injected. */
+    val sttState: StateFlow<app.swarsetu.stt.SttPipeline.PipelineState?> =
+        sttPipeline?.state?.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            ?: MutableStateFlow(null)
+
+    /** Live STT partial text. */
+    val sttPartialText: StateFlow<String> =
+        sttPipeline?.partialText?.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+            ?: MutableStateFlow("")
+
+    /** Latest TTS metrics — null when collector is not injected. */
+    val ttsMetrics: StateFlow<app.swarsetu.tts.TtsMetrics?> =
+        ttsMetricsCollector?.latestMetrics?.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            ?: MutableStateFlow(null)
 
     /** Re-reads the store. Called on resume, so deleting the report on the crash screen clears this row. */
     fun refreshLastCrash() {

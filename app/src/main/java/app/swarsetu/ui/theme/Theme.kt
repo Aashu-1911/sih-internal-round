@@ -2,91 +2,103 @@ package app.swarsetu.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
-private val LightColorScheme =
-    lightColorScheme(
-        primary = CoralPrimaryLight,
-        onPrimary = CoralOnPrimaryLight,
-        primaryContainer = CoralPrimaryContainerLight,
-        onPrimaryContainer = CoralOnPrimaryContainerLight,
-        secondary = CoralSecondaryLight,
-        onSecondary = CoralOnSecondaryLight,
-        secondaryContainer = CoralSecondaryContainerLight,
-        onSecondaryContainer = CoralOnSecondaryContainerLight,
-        tertiary = CoralTertiaryLight,
-        onTertiary = CoralOnTertiaryLight,
-        tertiaryContainer = CoralTertiaryContainerLight,
-        onTertiaryContainer = CoralOnTertiaryContainerLight,
-        background = BackgroundLight,
-        onBackground = OnBackgroundLight,
-        surface = SurfaceLight,
-        onSurface = OnSurfaceLight,
-        surfaceVariant = SurfaceVariantLight,
-        onSurfaceVariant = OnSurfaceVariantLight,
-        outline = OutlineLight,
-        error = ErrorLight,
-        onError = OnErrorLight,
-    )
+private val LightColorScheme = lightColorScheme(
+    primary = SwarsetuPrimaryLight,
+    onPrimary = SwarsetuOnPrimaryLight,
+    primaryContainer = SwarsetuPrimaryContainerLight,
+    onPrimaryContainer = SwarsetuOnPrimaryContainerLight,
+    secondary = SwarsetuSecondaryLight,
+    onSecondary = SwarsetuOnSecondaryLight,
+    secondaryContainer = SwarsetuSecondaryContainerLight,
+    onSecondaryContainer = SwarsetuOnSecondaryContainerLight,
+    tertiary = SwarsetuTertiaryLight,
+    onTertiary = SwarsetuOnTertiaryLight,
+    tertiaryContainer = SwarsetuTertiaryContainerLight,
+    onTertiaryContainer = SwarsetuOnTertiaryContainerLight,
+    error = SwarsetuErrorLight,
+    onError = SwarsetuOnErrorLight,
+    errorContainer = SwarsetuErrorContainerLight,
+    onErrorContainer = SwarsetuOnErrorContainerLight,
+    background = SwarsetuBackgroundLight,
+    onBackground = SwarsetuOnBackgroundLight,
+    surface = SwarsetuSurfaceLight,
+    onSurface = SwarsetuOnSurfaceLight,
+    surfaceVariant = SwarsetuSurfaceVariantLight,
+    onSurfaceVariant = SwarsetuOnSurfaceVariantLight,
+    outline = SwarsetuOutlineLight,
+    outlineVariant = SwarsetuOutlineVariantLight,
+)
 
-private val DarkColorScheme =
-    darkColorScheme(
-        primary = CoralPrimaryDark,
-        onPrimary = CoralOnPrimaryDark,
-        primaryContainer = CoralPrimaryContainerDark,
-        onPrimaryContainer = CoralOnPrimaryContainerDark,
-        secondary = CoralSecondaryDark,
-        onSecondary = CoralOnSecondaryDark,
-        secondaryContainer = CoralSecondaryContainerDark,
-        onSecondaryContainer = CoralOnSecondaryContainerDark,
-        tertiary = CoralTertiaryDark,
-        onTertiary = CoralOnTertiaryDark,
-        tertiaryContainer = CoralTertiaryContainerDark,
-        onTertiaryContainer = CoralOnTertiaryContainerDark,
-        background = BackgroundDark,
-        onBackground = OnBackgroundDark,
-        surface = SurfaceDark,
-        onSurface = OnSurfaceDark,
-        surfaceVariant = SurfaceVariantDark,
-        onSurfaceVariant = OnSurfaceVariantDark,
-        outline = OutlineDark,
-        error = ErrorDark,
-        onError = OnErrorDark,
-    )
+private val DarkColorScheme = darkColorScheme(
+    primary = SwarsetuPrimaryDark,
+    onPrimary = SwarsetuOnPrimaryDark,
+    primaryContainer = SwarsetuPrimaryContainerDark,
+    onPrimaryContainer = SwarsetuOnPrimaryContainerDark,
+    secondary = SwarsetuSecondaryDark,
+    onSecondary = SwarsetuOnSecondaryDark,
+    secondaryContainer = SwarsetuSecondaryContainerDark,
+    onSecondaryContainer = SwarsetuOnSecondaryContainerDark,
+    tertiary = SwarsetuTertiaryDark,
+    onTertiary = SwarsetuOnTertiaryDark,
+    tertiaryContainer = SwarsetuTertiaryContainerDark,
+    onTertiaryContainer = SwarsetuOnTertiaryContainerDark,
+    error = SwarsetuErrorDark,
+    onError = SwarsetuOnErrorDark,
+    errorContainer = SwarsetuErrorContainerDark,
+    onErrorContainer = SwarsetuOnErrorContainerDark,
+    background = SwarsetuBackgroundDark,
+    onBackground = SwarsetuOnBackgroundDark,
+    surface = SwarsetuSurfaceDark,
+    onSurface = SwarsetuOnSurfaceDark,
+    surfaceVariant = SwarsetuSurfaceVariantDark,
+    onSurfaceVariant = SwarsetuOnSurfaceVariantDark,
+    outline = SwarsetuOutlineDark,
+    outlineVariant = SwarsetuOutlineVariantDark,
+)
+
+/**
+ * Material 3 shape system for Swarsetu.
+ * Rounded corners convey friendliness and approachability.
+ */
+val SwarsetuShapes = Shapes(
+    extraSmall = RoundedCornerShape(4.dp),
+    small = RoundedCornerShape(8.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(24.dp),
+)
 
 @Composable
 fun SwarSetuTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Off by default so the Knit coral brand identity shows instead of the wallpaper palette.
-    // Callers can opt into Material You on Android 12+.
-    dynamicColor: Boolean = false,
+    // Enable dynamic color on Android 12+ for personalized theming
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme =
-        when {
-            dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                val context = LocalContext.current
-                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            }
-
-            darkTheme -> {
-                DarkColorScheme
-            }
-
-            else -> {
-                LightColorScheme
-            }
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
 
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography,
+        shapes = SwarsetuShapes,
         content = content,
     )
 }

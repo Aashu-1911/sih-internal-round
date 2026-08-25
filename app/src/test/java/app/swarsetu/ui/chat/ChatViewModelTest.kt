@@ -77,6 +77,8 @@ class ChatViewModelTest {
     private val gallerySaver = mockk<GallerySaver>(relaxed = true)
     private val voicePlayer = mockk<VoicePlayer>(relaxed = true)
     private val voiceMessageAdapter = mockk<app.swarsetu.voice.VoiceMessageAdapter>(relaxed = true)
+    private val voiceController = mockk<app.swarsetu.voice.VoiceConversationController>(relaxed = true)
+    private val sttPipeline = mockk<app.swarsetu.stt.SttPipeline>(relaxed = true)
 
     private val messagesFlow = MutableStateFlow(emptyList<MessageEntity>())
     private val reactionsFlow = MutableStateFlow(emptyList<ReactionEntity>())
@@ -153,6 +155,8 @@ class ChatViewModelTest {
             relayFactsFlow,
             context,
             voiceMessageAdapter,
+            voiceController,
+            sttPipeline,
         )
 
     @Test

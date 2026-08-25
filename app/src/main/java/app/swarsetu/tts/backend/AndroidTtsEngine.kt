@@ -127,9 +127,10 @@ class AndroidTtsEngine(
             // Can place stream type or other parameters here if required.
         }
 
-        // We use ADD to queue normally, or FLUSH if it's an alert (scheduler can also manage this).
-        // For Phase 1 standalone testing, we just use flush since the scheduler orchestrates.
-        val result = tts?.speak(request.text, TextToSpeech.QUEUE_FLUSH, bundle, utteranceId)
+        // ALERT: FLUSH to immediately replace any ongoing speech.
+        // NORMAL: ADD to queue behind current speech.
+        val queueMode = if (request.isAlert) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        val result = tts?.speak(request.text, queueMode, bundle, utteranceId)
         
         if (result == TextToSpeech.SUCCESS) {
             TtsResult.Success

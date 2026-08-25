@@ -36,6 +36,7 @@ class ProfileScreenContentTest {
         contentFilteringEnabled = true,
         relay = relay,
         isDirty = isDirty,
+        sttLanguageCode = "hi",
     )
 
     private fun render(
@@ -62,6 +63,7 @@ class ProfileScreenContentTest {
                     onClearPhoto = {},
                     onAllowBattery = {},
                     onSave = onSave,
+                    onSttLanguageChange = {},
                 )
             }
         }
