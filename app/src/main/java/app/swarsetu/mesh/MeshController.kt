@@ -99,6 +99,9 @@ interface MeshController {
         recipientId: String? = null,
         group: GroupInfo? = null,
         replyTo: ReplyRef? = null,
+        voiceTextLanguage: String? = null,
+        isAlert: Boolean = false,
+        messageId: String? = null,
     ): Boolean
 
     /** Floods a group metadata update (e.g. a rename) immediately, independent of any chat message. */
