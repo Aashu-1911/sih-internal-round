@@ -41,6 +41,8 @@ val uiModule =
                 get(),
                 get<RelayStatusRepository>().facts,
                 androidContext(),
+                get(),
+                get(),
             )
         }
         viewModel {
