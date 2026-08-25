@@ -54,10 +54,10 @@ class VoiceActivityDetectorTest {
     fun `brief noise does not trigger speech`() {
         val vad = VoiceActivityDetector()
         val silence = ShortArray(480) { 0 }
-        val noise = ShortArray(480) { 500 } // Below speech threshold
+        val noise = ShortArray(480) { 500 } // Above speech threshold, but brief
 
-        for (i in 1..5) vad.processFrame(noise)
-        // Still silent — noise is below speech threshold
+        for (i in 1..2) vad.processFrame(noise)
+        // Still silent — noise was too brief (requires 3 frames)
         assertEquals(VoiceActivityDetector.State.SILENT, vad.state)
     }
 

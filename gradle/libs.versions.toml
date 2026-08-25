@@ -149,7 +149,7 @@ exifinterface = "1.4.2"
 # stt/VoskEngine; the rest of the STT module is engine-agnostic. F-Droid: the AAR includes
 # prebuilt .so — verify 16 KB page alignment before shipping if targeting Android 15+.
 # Models are NOT bundled in this dependency; they are extracted from app assets at runtime.
-vosk = "0.3.70"
+vosk = "0.3.75"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

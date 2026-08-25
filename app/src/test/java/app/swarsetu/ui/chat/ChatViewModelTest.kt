@@ -76,6 +76,7 @@ class ChatViewModelTest {
     private val imageScreening = mockk<ImageScreeningService>(relaxed = true)
     private val gallerySaver = mockk<GallerySaver>(relaxed = true)
     private val voicePlayer = mockk<VoicePlayer>(relaxed = true)
+    private val voiceMessageAdapter = mockk<app.swarsetu.voice.VoiceMessageAdapter>(relaxed = true)
 
     private val messagesFlow = MutableStateFlow(emptyList<MessageEntity>())
     private val reactionsFlow = MutableStateFlow(emptyList<ReactionEntity>())
@@ -151,6 +152,7 @@ class ChatViewModelTest {
             // `advanceUntilIdle()` below would never reach idle.
             relayFactsFlow,
             context,
+            voiceMessageAdapter,
         )
 
     @Test
