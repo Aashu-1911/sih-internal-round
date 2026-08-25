@@ -208,12 +208,14 @@ class VoskEngine(
         }
     }.flowOn(Dispatchers.Default)
 
-    override suspend fun release() = mutex.withLock {
-        releaseModelInternal()
-        initialized = false
-        _config = null
-        _currentLanguage = null
-        Log.d(TAG, "Released")
+    override suspend fun release() {
+        mutex.withLock {
+            releaseModelInternal()
+            initialized = false
+            _config = null
+            _currentLanguage = null
+            Log.d(TAG, "Released")
+        }
     }
 
     // --- Internal model management ---
