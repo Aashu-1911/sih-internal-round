@@ -42,6 +42,7 @@ import app.swarsetu.ui.requests.MessageRequestsScreen
 import app.swarsetu.ui.review.RateReviewDialog
 import app.swarsetu.ui.review.ReviewPromptInbox
 import app.swarsetu.ui.share.ShareInbox
+import app.swarsetu.tts.ui.TtsTestScreen
 import app.swarsetu.ui.share.ShareTargetScreen
 import app.swarsetu.ui.verify.VerifyContactScreen
 import org.koin.compose.koinInject
@@ -59,6 +60,7 @@ private object Routes {
     const val VERIFY = "verify"
     const val INTERNET_RELAYS = "relays"
     const val SHARE = "share"
+    const val TTS_TEST = "tts_test"
     const val CHAT = "chat/{conversationId}"
 
     fun chat(conversationId: String) = "chat/$conversationId"
@@ -303,10 +305,14 @@ fun SwarSetuApp(startRoute: String? = null) {
             DiagnosticsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenCrashLog = { navController.navigate(Routes.CRASH_LOG) },
+                onOpenTtsTest = { navController.navigate(Routes.TTS_TEST) }
             )
         }
         composable(Routes.CRASH_LOG) {
             CrashLogScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.TTS_TEST) {
+            TtsTestScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.BLOCKED_USERS) {
             BlockedUsersScreen(onBack = { navController.popBackStack() })

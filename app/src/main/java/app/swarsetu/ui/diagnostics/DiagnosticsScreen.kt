@@ -76,6 +76,7 @@ import java.io.File
 fun DiagnosticsScreen(
     onBack: () -> Unit,
     onOpenCrashLog: () -> Unit,
+    onOpenTtsTest: () -> Unit,
     viewModel: DiagnosticsViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -114,6 +115,7 @@ fun DiagnosticsScreen(
         onRestartMesh = viewModel::restartMesh,
         onScan = viewModel::rescan,
         onOpenCrashLog = onOpenCrashLog,
+        onOpenTtsTest = onOpenTtsTest,
     )
 }
 
@@ -129,6 +131,7 @@ internal fun DiagnosticsScreenContent(
     onRestartMesh: () -> Unit,
     onScan: () -> Unit,
     onOpenCrashLog: () -> Unit,
+    onOpenTtsTest: () -> Unit,
 ) {
     Scaffold(
         modifier = Modifier.testTag("screen_diagnostics"),
@@ -169,6 +172,15 @@ internal fun DiagnosticsScreenContent(
                     onRestart = onRestartMesh,
                     onScan = onScan,
                 )
+            }
+            
+            item {
+                Button(
+                    onClick = onOpenTtsTest,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text("TTS Developer Test (Phase 1)")
+                }
             }
 
             item { SectionHeader(stringResource(R.string.diagnostics_transports)) }
@@ -831,6 +843,7 @@ fun DiagnosticsScreenPopulatedPreview() =
             onRestartMesh = {},
             onScan = {},
             onOpenCrashLog = {},
+            onOpenTtsTest = {},
         )
     }
 
@@ -852,5 +865,6 @@ fun DiagnosticsScreenEmptyDegradedPreview() =
             onRestartMesh = {},
             onScan = {},
             onOpenCrashLog = {},
+            onOpenTtsTest = {},
         )
     }
