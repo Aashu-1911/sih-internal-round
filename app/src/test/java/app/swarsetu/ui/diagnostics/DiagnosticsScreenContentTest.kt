@@ -48,6 +48,7 @@ class DiagnosticsScreenContentTest {
                     onRestartMesh = {},
                     onScan = {},
                     onOpenCrashLog = {},
+                    onOpenTtsTest = {},
                 )
             }
         }
@@ -70,6 +71,7 @@ class DiagnosticsScreenContentTest {
                     onRestartMesh = { restarts++ },
                     onScan = {},
                     onOpenCrashLog = {},
+                    onOpenTtsTest = {},
                 )
             }
         }
@@ -92,6 +94,7 @@ class DiagnosticsScreenContentTest {
                     onRestartMesh = {},
                     onScan = {},
                     onOpenCrashLog = {},
+                    onOpenTtsTest = {},
                 )
             }
         }
@@ -114,6 +117,7 @@ class DiagnosticsScreenContentTest {
                     onRestartMesh = {},
                     onScan = {},
                     onOpenCrashLog = { opened++ },
+                    onOpenTtsTest = {},
                 )
             }
         }

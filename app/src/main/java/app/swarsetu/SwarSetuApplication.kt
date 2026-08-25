@@ -12,6 +12,7 @@ import app.swarsetu.di.moderationModule
 import app.swarsetu.di.seedDemoIfEnabled
 import app.swarsetu.di.startDemoDirectorIfEnabled
 import app.swarsetu.di.sttModule
+import app.swarsetu.di.ttsModule
 import app.swarsetu.di.uiModule
 import app.swarsetu.moderation.MlTextModerator
 import app.swarsetu.notifications.Notifier
@@ -47,7 +48,7 @@ class SwarSetuApplication :
             startKoin {
                 androidLogger()
                 androidContext(this@SwarSetuApplication)
-                modules(appModule, meshModule, moderationModule, sttModule, uiModule)
+                modules(appModule,meshModule,moderationModule,sttModule,ttsModule,uiModule)
             }
         // Register the message notification channel up front so it appears in system settings.
         koinApp.koin.get<Notifier>().createChannel()
