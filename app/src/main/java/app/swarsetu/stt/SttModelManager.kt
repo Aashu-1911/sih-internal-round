@@ -104,10 +104,9 @@ class SttModelManager(
     private fun modelAssetExists(language: SttLanguage): Boolean =
         try {
             val dir = language.assetDir ?: return false
-            // Check for at least one file in the asset directory. AssetManager doesn't list directories
-            // directly, so we probe for a known file pattern. The actual model file name is determined
-            // by the engine implementation; here we just check the directory prefix exists.
-            context.assets.list(dir)?.isNotEmpty() == true
+            // Check for model.int8.onnx (sherpa-onnx IndicConformer format) in the asset directory.
+            val files = context.assets.list(dir) ?: return false
+            files.any { it.endsWith(".onnx") }
         } catch (_: Exception) {
             false
         }

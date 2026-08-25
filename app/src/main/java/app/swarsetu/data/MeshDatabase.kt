@@ -66,7 +66,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
     //     "delivered to / waiting on" split for a group send). Local bookkeeping only: the acker was always
     //     on the wire as the receipt's authenticated senderId, the tick's "≥1 recipient" semantic is
     //     unchanged, and no digest folds over it; migrated by MeshMigrations.MIGRATION_5_6.
-    version = 6,
+    version = 7,
     // Export the schema JSON to app/schemas/ (location set by the androidx.room Gradle plugin's
     // room { schemaDirectory(...) } in app/build.gradle.kts). Keeps the schema diffable in review and feeds
     // the migration test's MigrationTestHelper. Room also errors at compile time if an entity changes without

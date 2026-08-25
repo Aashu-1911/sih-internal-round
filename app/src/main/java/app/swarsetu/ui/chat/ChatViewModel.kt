@@ -45,6 +45,9 @@ import app.swarsetu.mesh.protocol.Mention
 import app.swarsetu.mesh.protocol.ReplyRef
 import app.swarsetu.moderation.ImageScreeningService
 import app.swarsetu.notifications.Notifier
+import app.swarsetu.stt.SttLanguage
+import app.swarsetu.stt.SttPipeline
+import app.swarsetu.stt.SttResult
 import app.swarsetu.ui.voice.VoicePlayer
 import app.swarsetu.ui.voice.VoiceRecorder
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -115,6 +118,7 @@ data class ChatRow(
     // would recompose every voice bubble on screen. The bubble decodes once, under `remember`.
     val voiceDurationMs: Int? = null,
     val voicePeaks: String? = null,
+    val voiceTranscript: String? = null,
     val mentions: List<Mention> = emptyList(),
     val reactions: List<ReactionSummary> = emptyList(),
     // The message this row quotes (Signal-style reply), or null when it isn't a reply. Denormalized so the
@@ -203,6 +207,7 @@ class ChatViewModel(
     // never reach idle. Taking the flow lets a test supply a finite one.
     private val relayFacts: Flow<RelayFacts>,
     private val context: Context,
+    private val sttPipeline: SttPipeline,
 ) : ViewModel() {
     /** This thread is the broadcast room (vs a 1:1 DM keyed by the peer's node id). */
     private val isRoom = conversationId == Conversations.NEARBY
@@ -239,6 +244,25 @@ class ChatViewModel(
 
     /** Playback state of whichever voice note is loaded app-wide; a bubble matches it against its own hash. */
     val voicePlayback: StateFlow<VoicePlayer.Playback?> = voicePlayer.nowPlaying
+
+    // --- STT (Speech-to-Text) integration ---
+
+    /** Currently selected STT language. */
+    private val _sttLanguage = MutableStateFlow(SttLanguage.HINDI)
+    val sttLanguage: StateFlow<SttLanguage> = _sttLanguage.asStateFlow()
+
+    /** Latest STT transcription result (null when idle). */
+    private val _sttResult = MutableStateFlow<SttResult?>(null)
+    val sttResult: StateFlow<SttResult?> = _sttResult.asStateFlow()
+
+    /** Live partial transcription text during capture. */
+    val sttPartialText: StateFlow<String> = sttPipeline.partialText
+
+    /** STT pipeline state (IDLE, CAPTURING, PROCESSING, COMPLETE). */
+    val sttState: StateFlow<SttPipeline.PipelineState> = sttPipeline.state
+
+    /** Available STT languages for the selector UI. */
+    val availableSttLanguages: List<SttLanguage> = SttLanguage.entries.toList()
 
     // Built lazily so a chat that never records never opens a recorder, and torn down in onCleared: the
     // microphone is exclusive, and leaking it would block every other app until this process died.
@@ -428,6 +452,7 @@ class ChatViewModel(
                         attachmentKey = m.attachmentKey,
                         voiceDurationMs = m.voiceDurationMs,
                         voicePeaks = m.voicePeaks,
+                        voiceTranscript = m.voiceTranscript,
                         attachmentReady = heldBytes != null,
                         attachmentFlagged = hideSensitive && m.attachmentHash != null && m.attachmentHash in flaggedHashes,
                         // Outbound reach only: a received attachment has already arrived, so telling its
@@ -837,6 +862,49 @@ class ChatViewModel(
         recorder.cancel()
     }
 
+    // --- STT methods ---
+
+    /** Switch the STT language. */
+    fun setSttLanguage(language: SttLanguage) {
+        _sttLanguage.value = language
+        viewModelScope.launch { sttPipeline.engine.setLanguage(language) }
+    }
+
+    /** Start STT capture. Transcribes speech in the selected language. */
+    fun startSttCapture() {
+        val language = _sttLanguage.value
+        _sttResult.value = null
+        sttPipeline.startCapture(language)
+    }
+
+    /** Stop STT capture. Transcription of captured audio will proceed. */
+    fun stopSttCapture() {
+        sttPipeline.stopCapture()
+        // Collect the result when pipeline completes
+        viewModelScope.launch {
+            sttPipeline.state.collect { state ->
+                if (state == SttPipeline.PipelineState.COMPLETE) {
+                    _sttResult.value = sttPipeline.latestResult.value
+                }
+            }
+        }
+    }
+
+    /** Cancel STT capture and discard transcription. */
+    fun cancelSttCapture() {
+        sttPipeline.cancelCapture()
+        _sttResult.value = null
+    }
+
+    /** Send the STT transcription as a text message. */
+    fun sendSttTranscription() {
+        val result = _sttResult.value ?: return
+        if (result.isUsable) {
+            send(result.text)
+            _sttResult.value = null
+        }
+    }
+
     /** Plays (or pauses, when it's already the loaded note) the voice note stored under [hash]. */
     fun playVoice(
         hash: String,
@@ -945,6 +1013,7 @@ class ChatViewModel(
         recordingTicker?.cancel()
         recorder.cancel()
         voicePlayer.stop()
+        viewModelScope.launch { sttPipeline.release() }
         super.onCleared()
     }
 

@@ -91,3 +91,9 @@
     public static int v(...);
     public static int i(...);
 }
+
+# ---- sherpa-onnx (offline STT engine) -----------------------------------------------------------------
+# sherpa-onnx uses JNI via its native .so and reflection for model loading. Keep the entire
+# public API surface to prevent R8 from renaming JNI method signatures or stripping reflective access.
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-dontwarn com.k2fsa.sherpa.onnx.**

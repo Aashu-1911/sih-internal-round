@@ -25,6 +25,9 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
+      - name: Download STT models
+        run: ./scripts/download-stt-models.sh
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 

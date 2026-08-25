@@ -38,7 +38,6 @@ enum class SttLanguage(
     MALAYALAM("ml", "മലയാളം", assetDir = "stt-ml"),
     TAMIL("ta", "தமிழ்", assetDir = "stt-ta"),
     TELUGU("te", "తెలుగు", assetDir = "stt-te"),
-    ODIA("or", "ଓଡ଼ିଆ", assetDir = "stt-or"),
     BENGALI("bn", "বাংলা", assetDir = "stt-bn"),
     ENGLISH("en", "English", assetDir = "stt-en"),
 

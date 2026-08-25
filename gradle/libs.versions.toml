@@ -149,7 +149,10 @@ exifinterface = "1.4.2"
 # stt/VoskEngine; the rest of the STT module is engine-agnostic. F-Droid: the AAR includes
 # prebuilt .so — verify 16 KB page alignment before shipping if targeting Android 15+.
 # Models are NOT bundled in this dependency; they are extracted from app assets at runtime.
-vosk = "0.3.70"
+# sherpa-onnx: offline ASR/TTS/VAD toolkit by k2-fsa (next-gen Kaldi). Ships native .so for all
+# ABIs; the Int8-quantized IndicConformer models (~188 MB each) run fully offline on-device.
+# Apache-2.0. See https://github.com/k2-fsa/sherpa-onnx
+sherpaOnnx = "v1.13.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -232,7 +235,7 @@ androidx-camera-view = { group = "androidx.camera", name = "camera-view", versio
 reandroid-arsclib = { group = "io.github.reandroid", name = "ARSCLib", version.ref = "arsclib" }
 apksig = { group = "com.android.tools.build", name = "apksig", version.ref = "apksig" }
 
-vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
+sherpa-onnx = { group = "com.github.k2-fsa", name = "sherpa-onnx", version.ref = "sherpaOnnx" }
 
 # Put onto the root buildscript classpath so AGP 9's built-in Kotlin compiles with this KGP (2.4.0)
 # instead of AGP's bundled default (2.2.10). Kotlin 2.4 is supported on AGP 9.1+ per Google's

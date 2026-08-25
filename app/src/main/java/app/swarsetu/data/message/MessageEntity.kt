@@ -48,6 +48,12 @@ import kotlinx.serialization.json.Json
  * same loading placeholder an image does until they do. Base64 rather than a `BLOB` column so this stays a
  * plain `data class`: a [ByteArray] property would give it a reference-identity `equals`.
  *
+ * [voiceTranscript] is the STT-generated text transcription of the voice note. Set locally by the sender
+ * after recording completes (via [app.swarsetu.stt.SttPipeline]). Carried on the wire inside the
+ * [app.swarsetu.mesh.crypto.MessageContent.voiceTranscript] field for encrypted DM/group messages, or
+ * in [ChatContent.voiceTranscript] for the broadcast room. Null when STT has not run or produced no
+ * result. The bubble displays it below the waveform.
+ *
  * [moderation] records an on-device content-moderation verdict for the [body] ([MODERATION_NONE] or
  * [MODERATION_TEXT_FLAGGED]). A flagged inbound message is still stored, but the UI collapses it behind
  * a tap-to-reveal rather than dropping it (so a false positive never loses content).
@@ -82,6 +88,7 @@ data class MessageEntity(
     val replyToHasAttachment: Boolean = false,
     val voiceDurationMs: Int? = null,
     val voicePeaks: String? = null,
+    val voiceTranscript: String? = null,
     val moderation: Int = MODERATION_NONE,
     val pendingKey: Boolean = false,
     val kind: Int = KIND_NORMAL,

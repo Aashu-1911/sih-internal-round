@@ -47,3 +47,5 @@ app/release/*
 
 # Private working area: marketing masters (see above) + personal files — kept out of the public repo.
 .private/
+# STT models (downloaded during CI build, not committed)
+app/src/main/assets/stt-*/
