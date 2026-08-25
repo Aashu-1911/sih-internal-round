@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
@@ -185,6 +186,9 @@ import app.swarsetu.ui.preview.PREVIEW_NOW
 import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.share.ShareInbox
 import app.swarsetu.ui.util.rememberCurrentTimeMillis
+import app.swarsetu.stt.SttLanguage
+import app.swarsetu.stt.SttPipeline
+import app.swarsetu.ui.voice.SttLanguageSelector
 import app.swarsetu.ui.voice.VoiceNoteBubble
 import app.swarsetu.ui.voice.VoiceNotePreview
 import app.swarsetu.ui.voice.VoicePlayer
@@ -226,6 +230,10 @@ fun ChatScreen(
     val stagedAttachmentRelay by viewModel.stagedAttachmentRelay.collectAsStateWithLifecycle()
     val voiceRecording by viewModel.voiceRecording.collectAsStateWithLifecycle()
     val voicePlayback by viewModel.voicePlayback.collectAsStateWithLifecycle()
+    // Speech-to-text state (Member 1): selected language, live partial text, pipeline phase.
+    val sttLanguage by viewModel.sttLanguage.collectAsStateWithLifecycle()
+    val sttPartialText by viewModel.sttPartialText.collectAsStateWithLifecycle()
+    val sttState by viewModel.sttState.collectAsStateWithLifecycle()
     val inputState = rememberTextFieldState()
     val shareInbox = koinInject<ShareInbox>()
     // Mentions the user inserted via autocomplete, draft-local alongside inputState (per the AGENTS.md
@@ -405,6 +413,20 @@ fun ChatScreen(
         onCancelVoice = viewModel::cancelVoiceRecording,
         onVoicePlay = viewModel::playVoice,
         onVoiceSeek = viewModel::seekVoice,
+        sttEnabled = !state.isRoom,
+        sttLanguage = sttLanguage,
+        sttPartialText = sttPartialText,
+        sttState = sttState,
+        onSttLanguageChange = viewModel::setSttLanguage,
+        onToggleStt = {
+            if (sttState == SttPipeline.PipelineState.CAPTURING ||
+                sttState == SttPipeline.PipelineState.PROCESSING
+            ) {
+                viewModel.stopSttCapture()
+            } else {
+                viewModel.startSttCapture()
+            }
+        },
     )
 
     // Sending an explicit image is allowed but discouraged: confirm before staging a flagged one.
@@ -475,6 +497,13 @@ internal fun ChatScreenContent(
     onCancelVoice: () -> Unit = {},
     onVoicePlay: (hash: String, key: String?) -> Unit = { _, _ -> },
     onVoiceSeek: (hash: String, positionMs: Int) -> Unit = { _, _ -> },
+    // Speech-to-text (Member 1).
+    sttEnabled: Boolean = false,
+    sttLanguage: SttLanguage = SttLanguage.HINDI,
+    sttPartialText: String = "",
+    sttState: SttPipeline.PipelineState = SttPipeline.PipelineState.IDLE,
+    onSttLanguageChange: (SttLanguage) -> Unit = {},
+    onToggleStt: () -> Unit = {},
 ) {
     var fullscreenImage by remember { mutableStateOf<FullscreenImage?>(null) }
     // The message a tapped quote scrolled to, briefly highlighted then cleared (see the LaunchedEffect
@@ -721,6 +750,12 @@ internal fun ChatScreenContent(
                 onCancelVoice = onCancelVoice,
                 onVoicePlay = onVoicePlay,
                 onVoiceSeek = onVoiceSeek,
+                sttEnabled = sttEnabled,
+                sttLanguage = sttLanguage,
+                sttPartialText = sttPartialText,
+                sttState = sttState,
+                onSttLanguageChange = onSttLanguageChange,
+                onToggleStt = onToggleStt,
             )
         },
     ) { padding ->
@@ -1984,6 +2019,73 @@ private fun SystemNotice(text: String) {
     )
 }
 
+/**
+ * Speech-to-text control row for the composer: a language dropdown, a capture toggle, and the
+ * live partial transcript underneath. Purely presentational — all state and actions come from the
+ * caller (ChatViewModel via [MessageInput]).
+ */
+@Composable
+private fun SttBar(
+    language: SttLanguage,
+    partialText: String,
+    capturing: Boolean,
+    onLanguageChange: (SttLanguage) -> Unit,
+    onToggle: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Surface(
+        tonalElevation = 1.dp,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Language picker. A DropdownMenu rather than nine chips: the bottom bar has no room.
+                Box {
+                    TextButton(onClick = { menuOpen = true }) {
+                        Text(language.displayName, style = MaterialTheme.typography.labelLarge)
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        SttLanguage.entries.forEach { candidate ->
+                            DropdownMenuItem(
+                                text = { Text(candidate.displayName) },
+                                onClick = {
+                                    menuOpen = false
+                                    if (candidate != language) onLanguageChange(candidate)
+                                },
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = onToggle) {
+                    Icon(
+                        imageVector = Icons.Filled.GraphicEq,
+                        contentDescription =
+                            if (capturing) "Stop speech recognition" else "Start speech recognition",
+                        tint =
+                            if (capturing) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                    )
+                }
+            }
+            if (capturing || partialText.isNotBlank()) {
+                Text(
+                    text = partialText.ifBlank { "Listening\u2026" },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageInput(
@@ -2014,6 +2116,13 @@ private fun MessageInput(
     onCancelVoice: () -> Unit = {},
     onVoicePlay: (hash: String, key: String?) -> Unit = { _, _ -> },
     onVoiceSeek: (hash: String, positionMs: Int) -> Unit = { _, _ -> },
+    // Speech-to-text (Member 1). Off in the broadcast room, same rule as voice notes.
+    sttEnabled: Boolean = false,
+    sttLanguage: SttLanguage = SttLanguage.HINDI,
+    sttPartialText: String = "",
+    sttState: SttPipeline.PipelineState = SttPipeline.PipelineState.IDLE,
+    onSttLanguageChange: (SttLanguage) -> Unit = {},
+    onToggleStt: () -> Unit = {},
 ) {
     // Capture images committed by the keyboard (Gboard GIFs), drag-and-drop, or paste. The state-based
     // BasicTextField is required here: it advertises the accepted content MIME types to the IME, so the
@@ -2159,6 +2268,19 @@ private fun MessageInput(
             }
             if (replyingTo != null) {
                 ReplyPreview(replyTo = replyingTo, myNodeId = myNodeId, onCancel = onCancelReply)
+                Spacer(Modifier.height(8.dp))
+            }
+            // Speech-to-text: language picker + capture toggle, with live partial text underneath.
+            // Hidden mid-voice-recording — the two features share the exclusive microphone.
+            if (sttEnabled && voiceRecording == null) {
+                SttBar(
+                    language = sttLanguage,
+                    partialText = sttPartialText,
+                    capturing = sttState == SttPipeline.PipelineState.CAPTURING ||
+                        sttState == SttPipeline.PipelineState.PROCESSING,
+                    onLanguageChange = onSttLanguageChange,
+                    onToggle = onToggleStt,
+                )
                 Spacer(Modifier.height(8.dp))
             }
             // The mic is offered when the composer is otherwise idle, and *kept* for as long as a recording
