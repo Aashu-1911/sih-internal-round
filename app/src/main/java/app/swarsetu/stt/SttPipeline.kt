@@ -174,6 +174,14 @@ class SttPipeline(
     }
 
     /**
+     * Switch the STT language. Loads the new model if needed (no-op if already active).
+     */
+    suspend fun setLanguage(language: SttLanguage) {
+        if (engine.isReady && engine.currentLanguage == language) return
+        engine.initialize(SttConfig(language = language))
+    }
+
+    /**
      * Release all resources (engine, capture). Call from ViewModel.onCleared or app shutdown.
      */
     suspend fun release() {

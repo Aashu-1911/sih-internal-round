@@ -867,7 +867,7 @@ class ChatViewModel(
     /** Switch the STT language. */
     fun setSttLanguage(language: SttLanguage) {
         _sttLanguage.value = language
-        viewModelScope.launch { sttPipeline.engine.setLanguage(language) }
+        viewModelScope.launch { sttPipeline.setLanguage(language) }
     }
 
     /** Start STT capture. Transcribes speech in the selected language. */

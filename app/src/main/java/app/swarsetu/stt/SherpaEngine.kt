@@ -189,7 +189,7 @@ class SherpaEngine(
 
         val config = OfflineRecognizerConfig(
             modelConfig = OfflineModelConfig(
-                nemoCtc = OfflineNemoEncDecCtcModelConfig(
+                nemo = OfflineNemoEncDecCtcModelConfig(
                     model = modelFile.absolutePath,
                 ),
                 tokens = tokensFile.absolutePath,
@@ -197,13 +197,12 @@ class SherpaEngine(
                 provider = "cpu",
             ),
             decodingMethod = "greedy_search",
-            enableEndpoint = true,
-            rule1MinTrailingSilence = 2.4f,
-            rule2MinTrailingSilence = 1.2f,
-            rule3MinUtteranceLength = 20.0f,
         )
 
-        recognizer = OfflineRecognizer(config)
+        // Note: endpoint/silence rules are streaming-recognizer-only params; the offline
+        // recognizer decodes complete utterances, and VAD silence detection is handled by
+        // SttPipeline's VoiceActivityDetector.
+        recognizer = OfflineRecognizer(assetManager = null, config = config)
 
         modelManager.markLoaded(
             SttModelInfo(
@@ -270,8 +269,8 @@ class SherpaEngine(
             val floatPcm = FloatArray(pcm.size) { pcm[it].toFloat() / Short.MAX_VALUE }
             stream.acceptWaveform(floatPcm, language.sampleRate)
             rec.decode(stream)
-            val text = stream.result.text
-            stream.free()
+            val text = rec.getResult(stream).text
+            stream.release()
             SttResult(
                 text = text,
                 type = SttResultType.FINAL,
