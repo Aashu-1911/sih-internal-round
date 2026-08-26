@@ -1,0 +1,19 @@
+2026-08-26T18:25:12.499595Z trace opened at 2026-08-26T18:25:12.497Z device=vivo V2111 abi=arm64-v8a, armeabi-v7a, armeabi sdk=31
+2026-08-26T18:25:12.503692Z BOOT-000 application onCreate; trace file=/data/user/0/app.swarsetu/no_backup/stt-trace/stt-trace-1787768712497.log
+2026-08-26T18:25:12.624577Z BOOT-VOICE-001 create Voice scope
+2026-08-26T18:25:12.633044Z BOOT-VOICE-001E created Voice scope
+2026-08-26T18:25:21.198341Z BOOT-STT-005 create SttPipeline
+2026-08-26T18:25:21.199879Z BOOT-STT-003 create SttEngine singleton
+2026-08-26T18:25:21.200824Z BOOT-STT-002 create SttEngineFactory
+2026-08-26T18:25:21.202221Z BOOT-STT-001 create SttModelManager
+2026-08-26T18:25:21.203510Z BOOT-STT-001E created SttModelManager
+2026-08-26T18:25:21.204288Z BOOT-STT-002E created SttEngineFactory
+2026-08-26T18:25:21.205008Z STT-001 factory create()
+2026-08-26T18:25:21.206097Z STT-002 device abi=arm64-v8a, armeabi-v7a, armeabi model=vivo V2111 sdk=31
+2026-08-26T18:25:21.207751Z STT-003 sherpa class probe ok: com.k2fsa.sherpa.onnx.OfflineRecognizer
+2026-08-26T18:25:21.209242Z STT-004 engine selected=app.swarsetu.stt.SherpaOnnxEngine
+2026-08-26T18:25:21.210194Z BOOT-STT-003E created SttEngine=app.swarsetu.stt.SherpaOnnxEngine
+2026-08-26T18:25:21.210980Z BOOT-STT-100 SttPipeline ctor enter engine=app.swarsetu.stt.SherpaOnnxEngine
+2026-08-26T18:25:21.212759Z BOOT-STT-101 SttPipeline ctor after members capture=app.swarsetu.stt.PcmCapture vad=app.swarsetu.stt.VoiceActivityDetector
+2026-08-26T18:25:21.213490Z BOOT-STT-102 SttPipeline ctor exit
+2026-08-26T18:25:21.214099Z BOOT-STT-005E created SttPipeline

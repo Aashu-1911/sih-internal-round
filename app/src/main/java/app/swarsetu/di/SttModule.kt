@@ -1,10 +1,9 @@
 package app.swarsetu.di
 
-import app.swarsetu.stt.PcmCapture
 import app.swarsetu.stt.SttEngine
 import app.swarsetu.stt.SttEngineFactory
 import app.swarsetu.stt.SttModelManager
-import app.swarsetu.stt.VoskEngine
+import app.swarsetu.stt.SttTraceLogger
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 
@@ -28,9 +27,21 @@ import org.koin.dsl.module
  */
 val sttModule =
     module {
-        single { SttModelManager(androidContext()) }
-        single { SttEngineFactory(androidContext(), get()) }
-        single<SttEngine> { get<SttEngineFactory>().create() }
-        single { PcmCapture(androidContext()) }
-        single { app.swarsetu.stt.SttPipeline(androidContext(), get()) }
+        single {
+            SttTraceLogger.log("BOOT-STT-001", "create SttModelManager")
+            SttModelManager(androidContext()).also { SttTraceLogger.log("BOOT-STT-001E", "created SttModelManager") }
+        }
+        single {
+            SttTraceLogger.log("BOOT-STT-002", "create SttEngineFactory")
+            SttEngineFactory(androidContext(), get()).also { SttTraceLogger.log("BOOT-STT-002E", "created SttEngineFactory") }
+        }
+        single<SttEngine> {
+            SttTraceLogger.log("BOOT-STT-003", "create SttEngine singleton")
+            get<SttEngineFactory>().create().also { SttTraceLogger.log("BOOT-STT-003E", "created SttEngine=${it::class.qualifiedName}") }
+        }
+        // NOTE: PcmCapture is created internally by SttPipeline — no standalone singleton needed.
+        single {
+            SttTraceLogger.log("BOOT-STT-005", "create SttPipeline")
+            app.swarsetu.stt.SttPipeline(androidContext(), get()).also { SttTraceLogger.log("BOOT-STT-005E", "created SttPipeline") }
+        }
     }

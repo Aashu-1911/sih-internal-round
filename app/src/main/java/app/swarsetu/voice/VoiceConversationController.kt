@@ -3,6 +3,7 @@ package app.swarsetu.voice
 import app.swarsetu.stt.SttLanguage
 import app.swarsetu.stt.SttPipeline
 import app.swarsetu.stt.SttResult
+import app.swarsetu.stt.SttTraceLogger
 import app.swarsetu.tts.TtsLanguage
 import app.swarsetu.tts.TtsManager
 import app.swarsetu.tts.TtsPriority
@@ -146,8 +147,25 @@ class DefaultVoiceConversationController(
     }
 
     override fun startListening(language: SttLanguage) {
-        if (sttPipeline.canCapture) {
-            sttPipeline.startCapture(language)
+        SttTraceLogger.log("STT-090", "VoiceConversationController.startListening language=${language.code}")
+        scope.launch {
+            try {
+                if (!sttPipeline.canCapture) {
+                    SttTraceLogger.log("STT-091E", "VoiceConversationController canCapture=false language=${language.code}")
+                    _state.value = VoiceState.ERROR
+                    return@launch
+                }
+                SttTraceLogger.log("STT-091", "VoiceConversationController calling startCapture language=${language.code}")
+                val result = sttPipeline.startCapture(language)
+                SttTraceLogger.log("STT-092", "VoiceConversationController startCapture returned=$result language=${language.code}")
+                if (result != SttPipeline.StartResult.STARTED) {
+                    SttTraceLogger.log("STT-092E", "VoiceConversationController startCapture failed result=$result")
+                    _state.value = VoiceState.ERROR
+                }
+            } catch (e: Throwable) {
+                SttTraceLogger.error("STT-092E", "VoiceConversationController.startListening failed", e)
+                _state.value = VoiceState.ERROR
+            }
         }
     }
 

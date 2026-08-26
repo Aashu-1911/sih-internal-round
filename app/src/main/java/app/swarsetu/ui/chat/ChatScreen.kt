@@ -499,7 +499,7 @@ internal fun ChatScreenContent(
     sttPartialText: String = "",
     voiceRecording: ChatViewModel.VoiceRecording? = null,
     voicePlayback: VoicePlayer.Playback? = null,
-    onStartVoice: (locked: Boolean) -> Unit = {},
+    onStartVoice: (locked: Boolean) -> Boolean = { false },
     onLockVoice: () -> Unit = {},
     onStopVoice: () -> Unit = {},
     onCancelVoice: () -> Unit = {},
@@ -2053,7 +2053,7 @@ private fun MessageInput(
     voiceEnabled: Boolean = false,
     voiceRecording: ChatViewModel.VoiceRecording? = null,
     voicePlayback: VoicePlayer.Playback? = null,
-    onStartVoice: (locked: Boolean) -> Unit = {},
+    onStartVoice: (locked: Boolean) -> Boolean = { false },
     onLockVoice: () -> Unit = {},
     onStopVoice: () -> Unit = {},
     onCancelVoice: () -> Unit = {},
@@ -2420,7 +2420,7 @@ private fun MessageInput(
 @Composable
 @Suppress("LoopWithTooManyJumpStatements")
 private fun MicButton(
-    onStart: (locked: Boolean) -> Unit,
+    onStart: (locked: Boolean) -> Boolean,
     onLock: () -> Unit,
     onStop: () -> Unit,
     onCancel: () -> Unit,

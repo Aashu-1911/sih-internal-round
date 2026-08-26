@@ -1,48 +1,61 @@
 package app.swarsetu.stt
 
 import android.content.Context
+import android.os.Build
+import android.util.Log
 
 /**
- * Factory for creating [SttEngine] instances. Abstracts the concrete engine implementation so the
- * application layer (Koin DI) can swap engines without changing consumers.
- *
- * Default implementation returns a [VoskEngine] (Vosk offline STT). If Vosk's native dependencies
- * are unavailable, fall back to [DefaultSttEngine] which gracefully degrades to empty results.
- *
- * Follows the project's DI convention: the factory is bound as a Koin `single` in
- * [app.swarsetu.di.SttModule], and engines are created via [create].
+ * Factory for creating [SttEngine] instances.
  */
 class SttEngineFactory(
     private val context: Context,
     private val modelManager: SttModelManager,
 ) {
-    /**
-     * Create a new [SttEngine] instance. The engine is not initialized — call [SttEngine.initialize]
-     * before use.
-     *
-     * Each call creates a fresh engine; the caller is responsible for calling [SttEngine.release]
-     * when done. For a shared singleton engine, use Koin's `single { }` binding instead.
-     *
-     * The factory tries [VoskEngine] first; if the Vosk native library is not available, it
-     * falls back to [DefaultSttEngine] (which returns empty results but doesn't crash).
-     */
     fun create(): SttEngine {
-        // Try Sherpa-ONNX first if available
+        Log.i(TAG, "[STT-DIAG-001] create() called")
+        SttTraceLogger.log("STT-001", "factory create()")
+        Log.i(TAG, "[STT-DIAG-002] Device ABI: ${Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"}")
+        Log.i(TAG, "[STT-DIAG-002b] Supported ABIs: ${Build.SUPPORTED_ABIS.joinToString()}")
+        Log.i(TAG, "[STT-DIAG-003] Device: ${Build.MANUFACTURER} ${Build.MODEL}, SDK ${Build.VERSION.SDK_INT}")
+        SttTraceLogger.log("STT-002", "device abi=${Build.SUPPORTED_ABIS.joinToString()} model=${Build.MANUFACTURER} ${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
+
+        // Try Vosk FIRST — proven working, safe native libs, no SIGSEGV risk.
         try {
-            Class.forName("com.k2fsa.sherpa.onnx.OfflineRecognizer")
-            return SherpaOnnxEngine(context, modelManager)
-        } catch (_: Throwable) {
-            // Proceed to Vosk — catches ClassNotFoundException, UnsatisfiedLinkError,
-            // ExceptionInInitializerError, etc.
+            Log.i(TAG, "[STT-DIAG-008] Probing org.vosk.Model via Class.forName...")
+            val clazz = Class.forName("org.vosk.Model", false, context.classLoader)
+            Log.i(TAG, "[STT-DIAG-009] Vosk Class.forName SUCCEEDED: ${clazz.name}")
+            SttTraceLogger.log("STT-005", "vosk class probe ok: ${clazz.name}")
+            val engine = VoskEngine(context, modelManager)
+            Log.i(TAG, "[STT-DIAG-010] VoskEngine created: ${engine::class.simpleName}")
+            SttTraceLogger.log("STT-006", "engine selected=${engine::class.qualifiedName}")
+            return engine
+        } catch (e: Throwable) {
+            Log.w(TAG, "[STT-DIAG-011] Vosk probe FAILED: ${e.javaClass.simpleName}: ${e.message}")
+            SttTraceLogger.error("STT-005E", "vosk class probe failed", e)
         }
 
-        return try {
-            // Probe for Vosk's native library — if it's not on the classpath, this will throw
-            Class.forName("org.vosk.Model")
-            VoskEngine(context, modelManager)
-        } catch (_: Throwable) {
-            android.util.Log.w(TAG, "Vosk and Sherpa-ONNX not available — using DefaultSttEngine (empty results)")
-            DefaultSttEngine(context, modelManager)
+        // Try Sherpa-ONNX as fallback — load native lib to verify it works.
+        try {
+            Log.i(TAG, "[STT-DIAG-004] Probing Sherpa-ONNX native library...")
+            SttTraceLogger.log("STT-003", "probing sherpa native lib")
+            // Force class init which triggers System.loadLibrary("sherpa-onnx-jni")
+            val clazz = Class.forName("com.k2fsa.sherpa.onnx.OfflineRecognizer")
+            Log.i(TAG, "[STT-DIAG-005] Sherpa native lib loaded: ${clazz.name}")
+            SttTraceLogger.log("STT-003B", "sherpa native lib ok: ${clazz.name}")
+            val engine = SherpaOnnxEngine(context, modelManager)
+            Log.i(TAG, "[STT-DIAG-006] SherpaOnnxEngine created: ${engine::class.simpleName}")
+            SttTraceLogger.log("STT-004", "engine selected=SherpaOnnxEngine")
+            return engine
+        } catch (e: Throwable) {
+            Log.w(TAG, "[STT-DIAG-007] Sherpa-ONNX FAILED: ${e.javaClass.simpleName}: ${e.message}")
+            SttTraceLogger.error("STT-003E", "sherpa native lib failed", e)
+        }
+
+        // Fallback
+        Log.w(TAG, "[STT-DIAG-012] Both Vosk and Sherpa-ONNX unavailable — using DefaultSttEngine")
+        SttTraceLogger.log("STT-007", "fallback DefaultSttEngine")
+        return DefaultSttEngine(context, modelManager).also {
+            Log.i(TAG, "[STT-DIAG-012b] Concrete engine class: ${it::class.qualifiedName}")
         }
     }
 

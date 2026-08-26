@@ -32,14 +32,13 @@ class MicGate(
      * button, and starting to record when the system dialog closes — seconds later, finger long since
      * lifted — would capture the wrong moment. They press again, and the second press records.
      */
-    fun runOrRequest(onGranted: () -> Unit): Boolean {
+    fun runOrRequest(onGranted: () -> Boolean): Boolean {
         if (!hasMicrophone) return false
         if (!granted) {
             request()
             return false
         }
-        onGranted()
-        return true
+        return onGranted()
     }
 }
 

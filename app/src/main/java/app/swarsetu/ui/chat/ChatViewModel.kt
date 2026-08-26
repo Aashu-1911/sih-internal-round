@@ -2,6 +2,7 @@ package app.swarsetu.ui.chat
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.swarsetu.R
@@ -45,6 +46,7 @@ import app.swarsetu.mesh.protocol.Mention
 import app.swarsetu.mesh.protocol.ReplyRef
 import app.swarsetu.moderation.ImageScreeningService
 import app.swarsetu.notifications.Notifier
+import app.swarsetu.stt.SttTraceLogger
 import app.swarsetu.ui.voice.VoicePlayer
 import app.swarsetu.ui.voice.VoiceRecorder
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -307,6 +309,19 @@ class ChatViewModel(
                 if (foreground) msgs.maxOfOrNull { it.sentAt } else null
             }.distinctUntilChanged().collect { watermark ->
                 if (watermark != null) settings.setLastReadAt(conversationId, watermark)
+            }
+        }
+        // Auto-dismiss recording UI when the STT pipeline stops (silence timeout, error, or
+        // user stop). This closes the race where stopVoiceRecordingAndStage() is called before
+        // startCapture() has set state to CAPTURING — the pipeline later auto-stops but nobody
+        // clears _voiceRecording, leaving the UI stuck.
+        viewModelScope.launch {
+            sttPipeline.state.collect { pipelineState ->
+                if (pipelineState == app.swarsetu.stt.SttPipeline.PipelineState.IDLE && _voiceRecording.value != null) {
+                    recordingTicker?.cancel()
+                    recordingTicker = null
+                    _voiceRecording.value = null
+                }
             }
         }
     }
@@ -793,34 +808,63 @@ class ChatViewModel(
      * unlocked and flips via [lockVoiceRecording] when the user slides up.
      */
     fun startVoiceRecording(locked: Boolean = false): Boolean {
-        if (_voiceRecording.value != null) return false
-        
-        // Always use STT pipeline for speech recognition — the user expects to see text.
+        Log.i(TAG, "[STT-DIAG-010] mic button -> startVoiceRecording() called: locked=$locked")
+        SttTraceLogger.log("STT-000", "mic button pressed locked=$locked")
+        Log.i(TAG, "[STT-DIAG-011] voice UI state before start: _voiceRecording.value=${_voiceRecording.value}")
+        Log.i(TAG, "[STT-DIAG-012] selected STT language before start: ${selectedSttLanguage.value.code} (${selectedSttLanguage.value.displayName})")
+
+        if (_voiceRecording.value != null) {
+            Log.w(TAG, "[STT-DIAG-012b] mic button boundary: already recording — returning false")
+            return false
+        }
+
         val language = selectedSttLanguage.value
-        if (sttPipeline.canCapture) {
-            sttPipeline.startCapture(language)
-        } else {
+
+        if (!sttPipeline.canCapture) {
+            Log.w(TAG, "[STT-DIAG-012c] mic button boundary: canCapture=false — hasPermission=${sttPipeline.hasPermission}, pipelineState=${sttPipeline.state.value}")
             _events.tryEmit(R.string.chat_voice_record_failed)
             return false
         }
 
-        _voiceRecording.value = VoiceRecording(elapsedMs = 0L, amplitude = 0f, locked = locked)
-        recordingTicker?.cancel()
-        val startTime = System.currentTimeMillis()
-        recordingTicker =
-            viewModelScope.launch {
-                while (true) {
-                    delay(VOICE_TICK_MS)
-                    val elapsed = System.currentTimeMillis() - startTime
-                    val amp = sttPipeline.amplitude.value
-                    if (elapsed >= VoiceRecorder.MAX_DURATION_MS) {
-                        stopVoiceRecordingAndStage()
-                        return@launch
-                    }
-                    _voiceRecording.value =
-                        _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = amp)
+        viewModelScope.launch {
+            try {
+                Log.i(TAG, "[STT-DIAG-013] calling SttPipeline.startCapture(language=${language.code})")
+                SttTraceLogger.log("STT-001", "call startCapture language=${language.code}")
+                val result = sttPipeline.startCapture(language)
+                Log.i(TAG, "[STT-DIAG-101] SttPipeline.startCapture returned: $result")
+                SttTraceLogger.log("STT-002", "startCapture returned=$result")
+                if (result != app.swarsetu.stt.SttPipeline.StartResult.STARTED) {
+                    Log.w(TAG, "[STT-DIAG-102] startCapture FAILED: $result — showing error")
+                    SttTraceLogger.log("STT-002E", "startCapture failed result=$result")
+                    _events.tryEmit(R.string.chat_voice_record_failed)
+                    return@launch
                 }
+
+                Log.i(TAG, "[STT-DIAG-103] Mic is LIVE — showing recording UI")
+                SttTraceLogger.log("STT-003", "mic live; show recording ui")
+                _voiceRecording.value = VoiceRecording(elapsedMs = 0L, amplitude = 0f, locked = locked)
+                val startTime = System.currentTimeMillis()
+                recordingTicker?.cancel()
+                recordingTicker = launch {
+                    while (true) {
+                        delay(VOICE_TICK_MS)
+                        val elapsed = System.currentTimeMillis() - startTime
+                        val amp = sttPipeline.amplitude.value
+                        if (elapsed >= VoiceRecorder.MAX_DURATION_MS) {
+                            stopVoiceRecordingAndStage()
+                            return@launch
+                        }
+                        _voiceRecording.value =
+                            _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = amp)
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "[STT-DIAG-104] startVoiceRecording UNEXPECTED FAILURE: ${e.javaClass.simpleName}: ${e.message}", e)
+                SttTraceLogger.error("STT-003E", "startVoiceRecording unexpected failure", e)
+                _events.tryEmit(R.string.chat_voice_record_failed)
+                sttPipeline.cancelCapture()
             }
+        }
         return true
     }
 
@@ -839,50 +883,18 @@ class ChatViewModel(
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
-        
-        // Stop the STT pipeline — the result will flow through sttLatestResult
-        // and the ChatScreen LaunchedEffect will place it in the input field.
-        if (sttPipeline.state.value != app.swarsetu.stt.SttPipeline.PipelineState.IDLE) {
-            sttPipeline.stopCapture()
+
+        try {
+            // Stop the STT pipeline gracefully. It will finish processing the captured audio,
+            // publish the final transcription via sttLatestResult, and reset to IDLE.
+            if (sttPipeline.state.value != app.swarsetu.stt.SttPipeline.PipelineState.IDLE) {
+                sttPipeline.stopCapture()
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "stopVoiceRecordingAndStage: error stopping pipeline: ${e.javaClass.simpleName}: ${e.message}")
+            sttPipeline.cancelCapture()
         }
         _voiceRecording.value = null
-        // Decide on the *elapsed time* before touching the recorder. A press too short to have encoded a
-        // frame is the common fumble, and taking it through stop() is what made it look like a hardware
-        // failure: MediaRecorder.stop() throws a bare RuntimeException when the encoder produced nothing,
-        // so a tap logged a scary warning and toasted "couldn't record". Cancelling instead resets the
-        // recorder cleanly and says the one useful thing — hold the button.
-        val tooShort = recorder.elapsedMs() < MIN_VOICE_MS
-        if (tooShort) {
-            recorder.cancel()
-            _events.tryEmit(R.string.chat_voice_too_short)
-            return
-        }
-        viewModelScope.launch {
-            val bytes = recorder.stop()
-            if (bytes == null) {
-                _events.tryEmit(R.string.chat_voice_record_failed)
-                return@launch
-            }
-            // Second gate, on the bytes rather than the clock: the encoder can lag the button, so a press
-            // held just past the threshold may still have produced less audio than it looked like.
-            // durationMs is pure header arithmetic, so this costs nothing.
-            if ((VoiceAudio.durationMs(bytes) ?: 0) < MIN_VOICE_MS) {
-                _events.tryEmit(R.string.chat_voice_too_short)
-                return@launch
-            }
-            when (val result = attachments.ingestVoice(bytes)) {
-                is AttachmentStore.IngestResult.Success -> {
-                    // The description rides on the staged attachment itself: the review row reads it from
-                    // there, and MeshManager writes it onto the row it creates, against the (possibly
-                    // ciphertext) hash that row will actually hold.
-                    _pendingAttachment.value = result.ingested
-                }
-
-                AttachmentStore.IngestResult.Failed -> {
-                    _events.tryEmit(R.string.chat_voice_record_failed)
-                }
-            }
-        }
     }
 
     /** Abandons an in-progress recording — the user slid to cancel. Nothing is ingested, so there's no GC. */
@@ -890,7 +902,11 @@ class ChatViewModel(
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
-        sttPipeline.cancelCapture()
+        try {
+            sttPipeline.cancelCapture()
+        } catch (e: Throwable) {
+            Log.e(TAG, "cancelVoiceRecording: error: ${e.javaClass.simpleName}: ${e.message}")
+        }
         _voiceRecording.value = null
     }
 
@@ -1000,12 +1016,19 @@ class ChatViewModel(
      */
     override fun onCleared() {
         recordingTicker?.cancel()
+        try {
+            sttPipeline.cancelCapture()
+        } catch (e: Throwable) {
+            Log.e(TAG, "onCleared: error cancelling pipeline: ${e.javaClass.simpleName}: ${e.message}")
+        }
         recorder.cancel()
         voicePlayer.stop()
         super.onCleared()
     }
 
     private companion object {
+        private const val TAG = "ChatViewModel"
+
         /** Send a typing cue at most this often while actively editing (< the receiver's ~12 s hold, so a peer
          *  who keeps typing re-cues before their indicator would expire). */
         const val TYPING_SEND_INTERVAL_MS = 8_000L

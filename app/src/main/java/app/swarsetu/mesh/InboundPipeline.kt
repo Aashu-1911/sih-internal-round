@@ -107,7 +107,7 @@ class InboundPipeline(
     private val settings: InboundSettings,
     private val messageCrypto: MessageCrypto,
     private val notifier: Notifier,
-    private val voiceMessageReceiver: VoiceMessageReceiver? = null,
+    private val voiceMessageReceiver: Lazy<VoiceMessageReceiver?>? = null,
     private val metrics: MeshMetrics,
     private val forwardSync: ForwardSync,
     private val blobExchange: BlobExchange,
@@ -1728,7 +1728,7 @@ class InboundPipeline(
             persist(entity)
             
             if (entity.voiceTextLanguage != null) {
-                voiceMessageReceiver?.onVoiceMessageReceived(entity)
+                voiceMessageReceiver?.value?.onVoiceMessageReceived(entity)
             }
         // Start pulling the referenced blob unless we already hold it (the UI observes the blobs table
         // and flips the attachment from "loading" to shown once the bytes land). If we already hold it

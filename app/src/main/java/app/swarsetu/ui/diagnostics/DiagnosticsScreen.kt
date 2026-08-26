@@ -1,6 +1,7 @@
 package app.swarsetu.ui.diagnostics
 
 import android.text.format.Formatter
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -62,6 +63,7 @@ import app.swarsetu.mesh.TransportKind
 import app.swarsetu.mesh.TransportStatus
 import app.swarsetu.mesh.spool.SpoolStatus
 import app.swarsetu.mesh.spool.SpoolUrl
+import app.swarsetu.stt.SttTraceLogger
 import app.swarsetu.ui.preview.PREVIEW_NOW
 import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.util.compactTimeAgo
@@ -95,6 +97,8 @@ fun DiagnosticsScreen(
     val now by rememberCurrentTimeMillis()
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val shareTraceLabel = stringResource(R.string.diagnostics_share_stt_trace)
     // Resolve the action-feedback strings at composition (lint forbids LocalContext.getString here),
     // then map the emitted resource id to the matching message.
     val restartedMsg = stringResource(R.string.diagnostics_mesh_restarted)
@@ -125,6 +129,18 @@ fun DiagnosticsScreen(
         onScan = viewModel::rescan,
         onOpenCrashLog = onOpenCrashLog,
         onOpenTtsTest = onOpenTtsTest,
+        onShareSttTrace = {
+            val uri = SttTraceLogger.stageForShare(context)
+            if (uri != null) {
+                val send =
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                context.startActivity(Intent.createChooser(send, shareTraceLabel).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+        },
     )
 }
 
@@ -144,6 +160,7 @@ internal fun DiagnosticsScreenContent(
     onScan: () -> Unit,
     onOpenCrashLog: () -> Unit,
     onOpenTtsTest: () -> Unit,
+    onShareSttTrace: () -> Unit,
 ) {
     Scaffold(
         modifier = Modifier.testTag("screen_diagnostics"),
@@ -192,6 +209,14 @@ internal fun DiagnosticsScreenContent(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Text("STT & TTS Voice Pipeline Test (Phase 1-3)")
+                }
+            }
+            item {
+                OutlinedButton(
+                    onClick = onShareSttTrace,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text(stringResource(R.string.diagnostics_share_stt_trace))
                 }
             }
 
@@ -879,6 +904,7 @@ fun DiagnosticsScreenPopulatedPreview() =
             onScan = {},
             onOpenCrashLog = {},
             onOpenTtsTest = {},
+            onShareSttTrace = {},
         )
     }
 
@@ -904,5 +930,6 @@ fun DiagnosticsScreenEmptyDegradedPreview() =
             onScan = {},
             onOpenCrashLog = {},
             onOpenTtsTest = {},
+            onShareSttTrace = {},
         )
     }

@@ -350,6 +350,7 @@
     <string name="diagnostics_metric_spool_attach_pulled">Photos received via Internet relays</string>
     <string name="diagnostics_metric_spool_attach_deferred">Photos left to nearby radios</string>
     <string name="diagnostics_controls">Mesh controls</string>
+    <string name="diagnostics_share_stt_trace">Share STT trace</string>
     <string name="diagnostics_status_healthy">Mesh status: Healthy</string>
     <string name="diagnostics_status_degraded">Mesh status: Degraded</string>
     <string name="diagnostics_status_degraded_hint">The radio may be in use by another app like Quick Share. Tap Restart mesh if it doesn\'t recover on its own.</string>

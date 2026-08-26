@@ -151,6 +151,8 @@ exifinterface = "1.4.2"
 # Models are NOT bundled in this dependency; they are extracted from app assets at runtime.
 vosk = "0.3.75"
 
+
+
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
@@ -233,6 +235,7 @@ reandroid-arsclib = { group = "io.github.reandroid", name = "ARSCLib", version.r
 apksig = { group = "com.android.tools.build", name = "apksig", version.ref = "apksig" }
 
 vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
+
 
 # Put onto the root buildscript classpath so AGP 9's built-in Kotlin compiles with this KGP (2.4.0)
 # instead of AGP's bundled default (2.2.10). Kotlin 2.4 is supported on AGP 9.1+ per Google's

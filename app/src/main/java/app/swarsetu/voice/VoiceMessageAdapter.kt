@@ -58,7 +58,7 @@ class VoiceMessageAdapter(
     ) {
         currentContext.set(RoutingContext(recipientId, group, replyTo, isAlert))
         if (sttPipeline.canCapture) {
-            sttPipeline.startCapture(language)
+            scope.launch { sttPipeline.startCapture(language) }
         }
     }
 

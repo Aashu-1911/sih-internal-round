@@ -111,7 +111,7 @@ class MeshManager(
     private val blobStore: MeshBlobStore,
     private val forwardStore: ForwardStore,
     private val notifier: Notifier,
-    private val voiceMessageReceiver: VoiceMessageReceiver? = null,
+    private val voiceMessageReceiver: Lazy<VoiceMessageReceiver?>? = null,
     private val textModeration: ScopedTextModerator,
     private val messageCrypto: MessageCrypto,
     private val ratchet: RatchetSessions,

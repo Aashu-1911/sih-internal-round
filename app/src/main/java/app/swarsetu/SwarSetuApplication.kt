@@ -16,6 +16,7 @@ import app.swarsetu.di.ttsModule
 import app.swarsetu.di.uiModule
 import app.swarsetu.di.voiceModule
 import app.swarsetu.moderation.MlTextModerator
+import app.swarsetu.stt.SttTraceLogger
 import app.swarsetu.notifications.Notifier
 import app.swarsetu.ui.image.BlobFetcher
 import app.swarsetu.ui.image.BlobKeyer
@@ -45,6 +46,8 @@ class SwarSetuApplication :
         // Chains to whatever handler was already default, so the "Knit keeps stopping" dialog and the
         // process kill still happen exactly as before.
         CrashHandler.install(crashStore(this), currentCrashEnvironment())
+        SttTraceLogger.init(this)
+        SttTraceLogger.log("BOOT-000", "application onCreate; trace file=${SttTraceLogger.file()?.absolutePath}")
         val koinApp =
             startKoin {
                 androidLogger()
