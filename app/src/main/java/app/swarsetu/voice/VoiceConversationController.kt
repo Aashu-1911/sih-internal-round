@@ -119,25 +119,30 @@ class DefaultVoiceConversationController(
         if (result === lastSpokenResult) return
         lastSpokenResult = result
 
-        val ttsLang = result.language.toTtsLanguage()
-        if (ttsLang == null) {
-            _state.value = VoiceState.ERROR
-            return
-        }
+        try {
+            val ttsLang = result.language.toTtsLanguage()
+            if (ttsLang == null) {
+                _state.value = VoiceState.ERROR
+                return
+            }
 
-        _state.value = VoiceState.SPEAKING
-        
-        val request = TtsRequest(
-            requestId = UUID.randomUUID().toString(),
-            text = result.text,
-            language = ttsLang,
-            priority = TtsPriority.NORMAL
-        )
-        
-        ttsManager.speak(request)
-        // Transition back to IDLE after queueing.
-        // TODO: Listen to TtsMetricsCollector completion for accurate SPEAKING→IDLE transition.
-        _state.value = VoiceState.IDLE
+            _state.value = VoiceState.SPEAKING
+            
+            val request = TtsRequest(
+                requestId = UUID.randomUUID().toString(),
+                text = result.text,
+                language = ttsLang,
+                priority = TtsPriority.NORMAL
+            )
+            
+            ttsManager.speak(request)
+            // Transition back to IDLE after queueing.
+            // TODO: Listen to TtsMetricsCollector completion for accurate SPEAKING→IDLE transition.
+            _state.value = VoiceState.IDLE
+        } catch (e: Throwable) {
+            android.util.Log.e("VoiceController", "Failed to handle STT result: ${e.javaClass.simpleName}: ${e.message}", e)
+            _state.value = VoiceState.IDLE
+        }
     }
 
     override fun startListening(language: SttLanguage) {

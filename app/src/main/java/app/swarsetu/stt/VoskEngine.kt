@@ -86,8 +86,8 @@ class VoskEngine(
             loadModelInternal(config.language)
             initialized = true
             Log.d(TAG, "Initialized for ${config.language.code}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Model load failed for ${config.language.code}: ${e.message}", e)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Model load failed for ${config.language.code}: ${e.javaClass.simpleName}: ${e.message}", e)
             initialized = true // Graceful degradation
         }
     }
@@ -323,8 +323,8 @@ class VoskEngine(
         val m = model ?: return null
         return try {
             Recognizer(m, language.sampleRate.toFloat())
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create recognizer for ${language.code}: ${e.message}")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to create recognizer for ${language.code}: ${e.javaClass.simpleName}: ${e.message}")
             null
         }
     }

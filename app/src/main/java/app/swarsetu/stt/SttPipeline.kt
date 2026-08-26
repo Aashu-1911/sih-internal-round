@@ -2,6 +2,7 @@ package app.swarsetu.stt
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -67,7 +68,15 @@ class SttPipeline(
         COMPLETE,
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, t ->
+            Log.e(TAG, "Uncaught exception in STT scope: ${t.javaClass.simpleName}: ${t.message}", t)
+            _state.value = PipelineState.IDLE
+            _partialText.value = ""
+            _amplitude.value = 0f
+            runCatching { capture.stop() }
+        }
+    )
     private val mutex = Mutex()
     private val capture = PcmCapture(context)
     private val vad = VoiceActivityDetector()
@@ -126,26 +135,34 @@ class SttPipeline(
         vad.reset()
 
         captureJob = scope.launch {
-            mutex.withLock {
-                val started = withContext(Dispatchers.IO) { capture.start() }
-                if (!started) {
-                    _state.value = PipelineState.IDLE
-                    return@withLock
-                }
-
-                // Ensure engine is ready for this language
-                if (!engine.isReady || engine.currentLanguage != language) {
-                    try {
-                        engine.initialize(SttConfig(language = language))
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Engine init failed: ${e.message}")
-                        withContext(Dispatchers.IO) { capture.stop() }
+            try {
+                mutex.withLock {
+                    val started = withContext(Dispatchers.IO) { capture.start() }
+                    if (!started) {
                         _state.value = PipelineState.IDLE
                         return@withLock
                     }
-                }
 
-                captureAudioWithVad(language, silenceTimeoutMs)
+                    // Ensure engine is ready for this language
+                    if (!engine.isReady || engine.currentLanguage != language) {
+                        try {
+                            engine.initialize(SttConfig(language = language))
+                        } catch (e: Throwable) {
+                            Log.e(TAG, "Engine init failed: ${e.javaClass.simpleName}: ${e.message}")
+                            withContext(Dispatchers.IO) { capture.stop() }
+                            _state.value = PipelineState.IDLE
+                            return@withLock
+                        }
+                    }
+
+                    captureAudioWithVad(language, silenceTimeoutMs)
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Capture coroutine failed: ${e.javaClass.simpleName}: ${e.message}")
+                runCatching { capture.stop() }
+                _state.value = PipelineState.IDLE
+                _partialText.value = ""
+                _amplitude.value = 0f
             }
         }
     }
@@ -155,10 +172,12 @@ class SttPipeline(
      */
     fun stopCapture() {
         if (_state.value != PipelineState.CAPTURING) return
+        _state.value = PipelineState.IDLE
         capture.stop()
         captureJob?.cancel()
         captureJob = null
-        // Transcription will proceed from the accumulated audio
+        _partialText.value = ""
+        _amplitude.value = 0f
     }
 
     /**
@@ -231,8 +250,8 @@ class SttPipeline(
                         _partialText.value = partialResult.text
                         Log.d(TAG, "Partial: \"${partialResult.text}\"")
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Partial transcription failed: ${e.message}")
+                } catch (e: Throwable) {
+                    Log.w(TAG, "Partial transcription failed: ${e.javaClass.simpleName}: ${e.message}")
                 }
             }
 
@@ -256,12 +275,23 @@ class SttPipeline(
         withContext(Dispatchers.IO) { capture.stop() }
 
         val pcm = ShortArray(allSamples.size) { allSamples[it] }
-        val result = engine.transcribe(pcm, language)
+        val result = try {
+            engine.transcribe(pcm, language)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Transcription failed: ${e.javaClass.simpleName}: ${e.message}")
+            SttResult.empty(language)
+        }
 
         _latestResult.value = result
         _partialText.value = result.text
         _state.value = PipelineState.COMPLETE
         Log.d(TAG, "Transcription: \"${result.text}\" (${result.type}, ${result.durationMs}ms)")
+
+        // Auto-reset to IDLE after a brief delay so the pipeline can be reused.
+        kotlinx.coroutines.delay(500)
+        if (_state.value == PipelineState.COMPLETE) {
+            _state.value = PipelineState.IDLE
+        }
     }
 
     private companion object {

@@ -138,7 +138,12 @@ class PcmCapture(
             if (_state.value != State.CAPTURING) return@withContext null
 
             val buffer = ShortArray(maxSamples)
-            val read = rec.read(buffer, 0, maxSamples)
+            val read = try {
+                rec.read(buffer, 0, maxSamples)
+            } catch (e: Throwable) {
+                Log.w(TAG, "AudioRecord read failed: ${e.javaClass.simpleName}: ${e.message}")
+                return@withContext null
+            }
             if (read <= 0) {
                 Log.w(TAG, "AudioRecord read returned $read")
                 return@withContext null
@@ -222,7 +227,7 @@ class PcmCapture(
      */
     fun stop() {
         if (_state.value == State.IDLE) return
-        _state.value = State.STOPPED
+        _state.value = State.IDLE
         runCatching { recorder?.stop() }
         runCatching { recorder?.release() }
         recorder = null
@@ -233,7 +238,7 @@ class PcmCapture(
      * Cancel an in-progress capture and discard all captured audio.
      */
     fun cancel() {
-        _state.value = State.STOPPED
+        _state.value = State.IDLE
         runCatching { recorder?.stop() }
         runCatching { recorder?.release() }
         recorder = null

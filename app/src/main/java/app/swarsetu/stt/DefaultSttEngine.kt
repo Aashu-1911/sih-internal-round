@@ -63,8 +63,8 @@ open class DefaultSttEngine(
             )
             initialized = true
             Log.d(TAG, "Initialized for ${config.language.code}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Model load failed for ${config.language.code}: ${e.message}")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Model load failed for ${config.language.code}: ${e.javaClass.simpleName}: ${e.message}")
             // Graceful degradation: engine is "ready" but will return empty results
             initialized = true
         }

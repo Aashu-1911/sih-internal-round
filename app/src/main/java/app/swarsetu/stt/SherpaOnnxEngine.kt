@@ -40,7 +40,7 @@ class SherpaOnnxEngine(
         try {
             context.assets.open(modelAsset).close()
             context.assets.open(tokensAsset).close()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(TAG, "Model assets not found for ${language.code}: ${e.message}")
             return
         }
@@ -65,8 +65,8 @@ class SherpaOnnxEngine(
                 config = config,
             )
             Log.d(TAG, "Sherpa-ONNX recognizer created for ${language.code} from assets")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create recognizer for ${language.code}: ${e.message}", e)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to create recognizer for ${language.code}: ${e.javaClass.simpleName}: ${e.message}", e)
             recognizer = null
         }
     }
@@ -96,8 +96,8 @@ class SherpaOnnxEngine(
             } else {
                 SttResult.empty(language)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Sherpa-ONNX inference error for ${language.code}: ${e.message}", e)
+        } catch (e: Throwable) {
+            Log.e(TAG, "Sherpa-ONNX inference error for ${language.code}: ${e.javaClass.simpleName}: ${e.message}", e)
             SttResult.empty(language)
         }
     }

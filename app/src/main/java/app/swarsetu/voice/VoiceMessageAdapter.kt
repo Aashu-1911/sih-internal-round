@@ -74,40 +74,44 @@ class VoiceMessageAdapter(
         if (result === lastSentResult) return
         lastSentResult = result
 
-        val t1 = System.currentTimeMillis()
-        val t0 = t1 - result.durationMs
-        voiceController.reportSttLatency(t0, t1)
+        try {
+            val t1 = System.currentTimeMillis()
+            val t0 = t1 - result.durationMs
+            voiceController.reportSttLatency(t0, t1)
 
-        val context = currentContext.get() ?: return
-        val ttsLanguage = result.language.toTtsLanguage() ?: return
-        
-        val t2 = System.currentTimeMillis()
+            val context = currentContext.get() ?: return
+            val ttsLanguage = result.language.toTtsLanguage() ?: return
+            
+            val t2 = System.currentTimeMillis()
 
-        // Calculate payload size by simulating exactly what MeshController builds
-        val content = MessageContent(
-            body = result.text,
-            replyTo = context.replyTo,
-            voiceTextLanguage = ttsLanguage.name,
-            isAlert = if (context.isAlert) true else null
-        )
-        val payloadSizeBytes = content.encode().size
-        
-        val messageId = UUID.randomUUID().toString()
-        val t3 = System.currentTimeMillis()
-        
-        voiceController.reportOutboundMessageMetrics(messageId, payloadSizeBytes, t2, t3)
+            // Calculate payload size by simulating exactly what MeshController builds
+            val content = MessageContent(
+                body = result.text,
+                replyTo = context.replyTo,
+                voiceTextLanguage = ttsLanguage.name,
+                isAlert = if (context.isAlert) true else null
+            )
+            val payloadSizeBytes = content.encode().size
+            
+            val messageId = UUID.randomUUID().toString()
+            val t3 = System.currentTimeMillis()
+            
+            voiceController.reportOutboundMessageMetrics(messageId, payloadSizeBytes, t2, t3)
 
-        meshController.sendChat(
-            text = result.text,
-            recipientId = context.recipientId,
-            group = context.group,
-            replyTo = context.replyTo,
-            voiceTextLanguage = ttsLanguage.name,
-            isAlert = context.isAlert,
-            messageId = messageId
-        )
-        
-        // Clear context after successful transmission to prevent accidental re-sends.
-        currentContext.set(null)
+            meshController.sendChat(
+                text = result.text,
+                recipientId = context.recipientId,
+                group = context.group,
+                replyTo = context.replyTo,
+                voiceTextLanguage = ttsLanguage.name,
+                isAlert = context.isAlert,
+                messageId = messageId
+            )
+            
+            // Clear context after successful transmission to prevent accidental re-sends.
+            currentContext.set(null)
+        } catch (e: Throwable) {
+            android.util.Log.e("VoiceMessageAdapter", "Failed to send STT result: ${e.javaClass.simpleName}: ${e.message}", e)
+        }
     }
 }

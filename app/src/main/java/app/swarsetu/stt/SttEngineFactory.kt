@@ -31,15 +31,16 @@ class SttEngineFactory(
         try {
             Class.forName("com.k2fsa.sherpa.onnx.OfflineRecognizer")
             return SherpaOnnxEngine(context, modelManager)
-        } catch (_: ClassNotFoundException) {
-            // Proceed to Vosk
+        } catch (_: Throwable) {
+            // Proceed to Vosk — catches ClassNotFoundException, UnsatisfiedLinkError,
+            // ExceptionInInitializerError, etc.
         }
 
         return try {
             // Probe for Vosk's native library — if it's not on the classpath, this will throw
             Class.forName("org.vosk.Model")
             VoskEngine(context, modelManager)
-        } catch (_: ClassNotFoundException) {
+        } catch (_: Throwable) {
             android.util.Log.w(TAG, "Vosk and Sherpa-ONNX not available — using DefaultSttEngine (empty results)")
             DefaultSttEngine(context, modelManager)
         }
