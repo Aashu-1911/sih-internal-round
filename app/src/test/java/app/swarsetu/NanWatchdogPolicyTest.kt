@@ -44,7 +44,12 @@ class NanWatchdogPolicyTest {
     }
 
     @Test
-    fun nothingOwedClearsTheEpisode() {
+    fun `no peers or nothing owed clears the episode and causes no restart`() {
+        assertEquals(NanWatchdogPolicy.Decision(Action.None, 0L), decide(reachableOwed = false, now = episodeStart + 200_000L))
+    }
+
+    @Test
+    fun `unreachable peer causes no process restart`() {
         assertEquals(NanWatchdogPolicy.Decision(Action.None, 0L), decide(reachableOwed = false, now = episodeStart + 200_000L))
     }
 
@@ -57,12 +62,11 @@ class NanWatchdogPolicyTest {
     @Test
     fun aLinkSinceTheEpisodeBeganRestartsTheClock() {
         val now = episodeStart + 50_000L
-        // lastLinkOrAcceptAt >= syncOwedSince ⇒ progress ⇒ re-anchor the episode to now, take no action.
         assertEquals(NanWatchdogPolicy.Decision(Action.None, now), decide(now = now, lastLinkOrAcceptAt = episodeStart))
     }
 
     @Test
-    fun tier1FiresAtTheResponderRefreshBoundaryWithCooldownElapsed() {
+    fun `tier-1 refresh occurs before tier-2 recovery`() {
         val now = episodeStart + responderRefreshMs // owedFor == boundary (>=)
         assertEquals(NanWatchdogPolicy.Decision(Action.RefreshResponder, episodeStart), decide(now = now))
     }
@@ -75,15 +79,15 @@ class NanWatchdogPolicyTest {
 
     @Test
     fun tier1BlockedByCooldownHoldsWhileBelowRestart() {
-        val now = episodeStart + 50_000L // past refresh, below restart
+        val now = episodeStart + 50_000L
         assertEquals(
             NanWatchdogPolicy.Decision(Action.None, episodeStart),
-            decide(now = now, lastReattachAt = now - (reattachCooldownMs - 1)), // cooldown NOT elapsed
+            decide(now = now, lastReattachAt = now - (reattachCooldownMs - 1)),
         )
     }
 
     @Test
-    fun tier1CooldownBlockedFallsThroughToTier2() {
+    fun `genuine corroborated wedge triggers recovery action`() {
         val now = episodeStart + wedgeRestartMs // owedFor == restart boundary
         assertEquals(
             NanWatchdogPolicy.Decision(Action.RestartProcess, episodeStart),
@@ -92,7 +96,7 @@ class NanWatchdogPolicyTest {
     }
 
     @Test
-    fun tier2GatedOffWhenUncorroborated() {
+    fun `sync owed but not corroborated causes no process restart`() {
         val now = episodeStart + wedgeRestartMs
         assertEquals(
             NanWatchdogPolicy.Decision(Action.None, episodeStart),

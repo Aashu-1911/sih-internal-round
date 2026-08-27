@@ -39,6 +39,7 @@ import app.swarsetu.ui.RouteInbox
 import app.swarsetu.ui.review.ReviewPromptInbox
 import app.swarsetu.ui.share.ShareInbox
 import app.swarsetu.ui.voice.VoicePlayer
+import app.swarsetu.translation.TranslatorEngine
 import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 
@@ -74,6 +75,8 @@ val appModule =
         single { ReviewPromptInbox() }
         // Decides when to ask for an app rating and where to route it (installer-aware); no-op in demo builds.
         single { ReviewPrompter(androidContext(), get(), get(), get(), get()) }
+        
+        single { TranslatorEngine() }
 
         single { DatabaseKey(androidContext()) }
         single { MeshDatabase.build(androidContext(), get<DatabaseKey>().getOrCreate()) }

@@ -57,16 +57,10 @@ class VoiceMessageAdapter(
         isAlert: Boolean = false,
     ) {
         currentContext.set(RoutingContext(recipientId, group, replyTo, isAlert))
-        if (sttPipeline.canCapture) {
-            sttPipeline.startCapture(language)
-        }
     }
 
-    /**
-     * Stops listening. If a final result was already captured, it will still be processed.
-     */
     fun stopVoiceMessage() {
-        sttPipeline.stopCapture()
+        currentContext.set(null)
     }
 
     private suspend fun handleSttResult(result: SttResult) {

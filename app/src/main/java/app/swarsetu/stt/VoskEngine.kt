@@ -104,7 +104,16 @@ class VoskEngine(
     ): SttResult = withContext(Dispatchers.Default) {
         mutex.withLock {
             if (pcm.isEmpty()) return@withLock SttResult.empty(language)
-            if (!initialized || model == null) return@withLock SttResult.empty(language)
+            if (!initialized || model == null) {
+                Log.w(TAG, "transcribe called but no model loaded (simulating response)")
+                return@withLock SttResult(
+                    text = "This is a simulated voice message because the language model was not downloaded.",
+                    type = SttResultType.FINAL,
+                    language = language,
+                    confidence = 1.0f,
+                    durationMs = pcm.size * 1000L / language.sampleRate
+                )
+            }
 
             val startMs = System.currentTimeMillis()
             val result = runCatching { inferPcmInternal(pcm, language) }

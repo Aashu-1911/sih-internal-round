@@ -43,6 +43,11 @@ val uiModule =
                 androidContext(),
                 get(),
                 get(),
+<<<<<<< Updated upstream
+=======
+                get(),
+                get(),
+>>>>>>> Stashed changes
             )
         }
         viewModel {

@@ -73,7 +73,7 @@ class PcmCapture(
      * Whether capture can start (permission granted + not already capturing).
      */
     fun canCapture(): Boolean =
-        hasPermission() && _state.value == State.IDLE
+        hasPermission() && _state.value != State.CAPTURING
 
     /**
      * Start capturing PCM audio. Opens the microphone.
@@ -122,6 +122,7 @@ class PcmCapture(
         recorder?.startRecording()
         _state.value = State.CAPTURING
         capturedSamples = 0
+        Log.d(TAG, "PCM_STARTED")
         Log.d(TAG, "Capture started: ${SAMPLE_RATE}Hz, buffer=${actualBufferSize}B")
         return true
     }
@@ -221,10 +222,17 @@ class PcmCapture(
      * Stop capturing and release the microphone. Idempotent.
      */
     fun stop() {
-        if (_state.value == State.IDLE) return
-        _state.value = State.STOPPED
-        runCatching { recorder?.stop() }
-        runCatching { recorder?.release() }
+        Log.d(TAG, "PCM_STOP_REQUESTED")
+        if (_state.value != State.CAPTURING) return
+        _state.value = State.IDLE
+        runCatching { 
+            recorder?.stop() 
+            Log.d(TAG, "AUDIO_RECORD_STOPPED")
+        }
+        runCatching { 
+            recorder?.release() 
+            Log.d(TAG, "AUDIO_RECORD_RELEASED")
+        }
         recorder = null
         Log.d(TAG, "Capture stopped: ${capturedSamples} samples (${capturedDurationMs}ms)")
     }
@@ -233,9 +241,16 @@ class PcmCapture(
      * Cancel an in-progress capture and discard all captured audio.
      */
     fun cancel() {
-        _state.value = State.STOPPED
-        runCatching { recorder?.stop() }
-        runCatching { recorder?.release() }
+        Log.d(TAG, "PCM_STOP_REQUESTED (Cancel)")
+        _state.value = State.IDLE
+        runCatching { 
+            recorder?.stop() 
+            Log.d(TAG, "AUDIO_RECORD_STOPPED")
+        }
+        runCatching { 
+            recorder?.release() 
+            Log.d(TAG, "AUDIO_RECORD_RELEASED")
+        }
         recorder = null
         capturedSamples = 0
     }

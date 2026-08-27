@@ -35,6 +35,8 @@ import app.swarsetu.ui.diagnostics.DiagnosticsScreen
 import app.swarsetu.ui.donate.DonateScreen
 import app.swarsetu.ui.group.GroupDetailsScreen
 import app.swarsetu.ui.onboarding.OnboardingScreen
+import app.swarsetu.ui.onboarding.LanguageInitScreen
+import app.swarsetu.ui.onboarding.ProfileSetupScreen
 import app.swarsetu.ui.profile.ProfileDetailsScreen
 import app.swarsetu.ui.profile.ProfileScreen
 import app.swarsetu.ui.relay.InternetRelayScreen
@@ -49,6 +51,8 @@ import org.koin.compose.koinInject
 
 private object Routes {
     const val ONBOARDING = "onboarding"
+    const val LANGUAGE_INIT = "language_init"
+    const val PROFILE_SETUP = "profile_setup"
     const val CHAT_LIST = "chatlist"
     const val CONTACTS = "contacts"
     const val PROFILE = "profile"
@@ -98,11 +102,18 @@ fun SwarSetuApp(startRoute: String? = null) {
     val showReviewPrompt by reviewInbox.pending.collectAsStateWithLifecycle()
     // Past onboarding once mesh permissions are granted (demo builds skip the gate).
     val onboarded = BuildConfig.SEED_DEMO || hasAllMeshPermissions(context)
+    val settingsStore = koinInject<app.swarsetu.data.settings.SettingsStore>()
+    val isLanguageInitComplete by settingsStore.isLanguageInitComplete.collectAsStateWithLifecycle(initialValue = false)
+    val isProfileSetupComplete by settingsStore.isProfileSetupComplete.collectAsStateWithLifecycle(initialValue = false)
+    
     // Demo-screenshot mode skips the permission gate (and an optional [startRoute] jumps straight to a
     // screen for deterministic capture); otherwise gate on permissions as usual.
     val start =
         startRoute
-            ?: if (onboarded) Routes.CHAT_LIST else Routes.ONBOARDING
+            ?: if (onboarded && isLanguageInitComplete && isProfileSetupComplete) Routes.CHAT_LIST
+            else if (onboarded && isLanguageInitComplete) Routes.PROFILE_SETUP
+            else if (onboarded) Routes.LANGUAGE_INIT 
+            else Routes.ONBOARDING
 
     // Start the mesh service whenever the user is past onboarding (guard kept broad on purpose). Demo
     // builds never start it — there is no real mesh and the seeded data needs no transport.
@@ -166,10 +177,25 @@ fun SwarSetuApp(startRoute: String? = null) {
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onReady = {
-                    navController.navigate(Routes.CHAT_LIST) {
+                    navController.navigate(Routes.LANGUAGE_INIT) {
                         popUpTo(Routes.ONBOARDING) { inclusive = true }
                     }
                 },
+            )
+        }
+        composable(Routes.LANGUAGE_INIT) {
+            LanguageInitScreen(
+                onInitializationComplete = {
+                    navController.navigate(Routes.PROFILE_SETUP) { popUpTo(0) }
+                }
+            )
+        }
+
+        composable(Routes.PROFILE_SETUP) {
+            ProfileSetupScreen(
+                onSetupComplete = {
+                    navController.navigate(Routes.CHAT_LIST) { popUpTo(0) }
+                }
             )
         }
         composable(Routes.CHAT_LIST) {

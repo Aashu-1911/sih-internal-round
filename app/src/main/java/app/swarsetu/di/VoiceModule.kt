@@ -25,7 +25,10 @@ val voiceModule = module {
         app.swarsetu.voice.VoiceMessageReceiver(
             ttsManager = get(),
             scope = get(),
-            voiceController = get()
+            voiceController = get(),
+            settingsStore = get(),
+            translatorEngine = get(),
+            messageRepository = get()
         )
     }
 

@@ -67,6 +67,8 @@ class SttPipeline(
         COMPLETE,
     }
 
+    enum class DiagnosticMode { PRODUCTION, AUDIO_ONLY, VOSK, SHERPA }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
     private val capture = PcmCapture(context)
@@ -127,22 +129,47 @@ class SttPipeline(
 
         captureJob = scope.launch {
             mutex.withLock {
+                Log.d(TAG, "VOICE_START")
+                Log.d(TAG, "AUDIO_RECORD_CREATED")
+                
                 val started = withContext(Dispatchers.IO) { capture.start() }
                 if (!started) {
                     _state.value = PipelineState.IDLE
+                    return@withLock
+                }
+                
+                Log.d(TAG, "AUDIO_RECORD_STARTED")
+
+                if (VOICE_CAPTURE_DIAGNOSTIC_MODE == DiagnosticMode.AUDIO_ONLY) {
+                    Log.d(TAG, "AUDIO_ONLY_START")
+                    captureAudioWithVad(language, silenceTimeoutMs)
                     return@withLock
                 }
 
                 // Ensure engine is ready for this language
                 if (!engine.isReady || engine.currentLanguage != language) {
                     try {
+                        Log.d(TAG, "${VOICE_CAPTURE_DIAGNOSTIC_MODE.name}_CREATED")
                         engine.initialize(SttConfig(language = language))
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Engine init failed: ${e.message}")
+                        Log.d(TAG, "${VOICE_CAPTURE_DIAGNOSTIC_MODE.name}_MODEL_READY")
+                        Log.d(TAG, "${VOICE_CAPTURE_DIAGNOSTIC_MODE.name}_STARTED")
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "PROCESS_EXIT_DETECTED: Engine init threw Throwable: ${e.javaClass.simpleName} - ${e.message}")
+                        if (app.swarsetu.BuildConfig.DEBUG) {
+                            Log.e(TAG, "FAILSAFE: Caught native init error in DEBUG mode to prevent EXIT_SELF")
+                        } else {
+                            throw e
+                        }
                         withContext(Dispatchers.IO) { capture.stop() }
                         _state.value = PipelineState.IDLE
                         return@withLock
                     }
+                }
+
+                if (VOICE_CAPTURE_DIAGNOSTIC_MODE == DiagnosticMode.VOSK) {
+                    Log.d(TAG, "VOSK_START")
+                } else if (VOICE_CAPTURE_DIAGNOSTIC_MODE == DiagnosticMode.SHERPA) {
+                    Log.d(TAG, "SHERPA_START")
                 }
 
                 captureAudioWithVad(language, silenceTimeoutMs)
@@ -155,9 +182,8 @@ class SttPipeline(
      */
     fun stopCapture() {
         if (_state.value != PipelineState.CAPTURING) return
+        _state.value = PipelineState.PROCESSING
         capture.stop()
-        captureJob?.cancel()
-        captureJob = null
         // Transcription will proceed from the accumulated audio
     }
 
@@ -215,6 +241,33 @@ class SttPipeline(
 
             // Accumulate
             for (s in chunk) allSamples.add(s)
+<<<<<<< Updated upstream
+=======
+            samplesSinceLastPartial += chunk.size
+
+            // Emit partial transcription every ~1 second so the user sees live text
+            if (samplesSinceLastPartial >= partialIntervalSamples && allSamples.size >= partialIntervalSamples) {
+                samplesSinceLastPartial = 0
+                if (VOICE_CAPTURE_DIAGNOSTIC_MODE != DiagnosticMode.AUDIO_ONLY) {
+                    if (allSamples.size == chunk.size) {
+                        Log.d(TAG, "PCM_FIRST_FRAME")
+                        Log.d(TAG, "${VOICE_CAPTURE_DIAGNOSTIC_MODE.name}_FIRST_FRAME")
+                        Log.d(TAG, "${VOICE_CAPTURE_DIAGNOSTIC_MODE.name}_FIRST_ACCEPT")
+                    }
+                    try {
+                        val partialPcm = ShortArray(allSamples.size) { allSamples[it] }
+                        val partialResult = engine.transcribe(partialPcm, language)
+                        if (partialResult.text.isNotBlank()) {
+                            _partialText.value = partialResult.text
+                            Log.d(TAG, "Partial: \"${partialResult.text}\"")
+                            Log.d(TAG, "${VOICE_CAPTURE_DIAGNOSTIC_MODE.name}_PARTIAL")
+                        }
+                    } catch (e: Throwable) {
+                        Log.e(TAG, "PROCESS_EXIT_DETECTED: Partial transcription failed: ${e.javaClass.simpleName} - ${e.message}")
+                    }
+                }
+            }
+>>>>>>> Stashed changes
 
             // Check if silence timeout reached after speech
             if (vadState == VoiceActivityDetector.State.SILENT && lastSpeechSample > 0) {
@@ -235,16 +288,31 @@ class SttPipeline(
         _state.value = PipelineState.PROCESSING
         withContext(Dispatchers.IO) { capture.stop() }
 
-        val pcm = ShortArray(allSamples.size) { allSamples[it] }
-        val result = engine.transcribe(pcm, language)
+        if (VOICE_CAPTURE_DIAGNOSTIC_MODE == DiagnosticMode.AUDIO_ONLY) {
+            Log.d(TAG, "AUDIO_FRAME_COUNT: ${allSamples.size}")
+            Log.d(TAG, "AUDIO_ONLY_STOP")
+            _state.value = PipelineState.IDLE
+            return
+        }
 
-        _latestResult.value = result
-        _partialText.value = result.text
-        _state.value = PipelineState.COMPLETE
-        Log.d(TAG, "Transcription: \"${result.text}\" (${result.type}, ${result.durationMs}ms)")
+        try {
+            val pcm = ShortArray(allSamples.size) { allSamples[it] }
+            val result = engine.transcribe(pcm, language)
+
+            _latestResult.value = result
+            _partialText.value = result.text
+            _state.value = PipelineState.COMPLETE
+            Log.d(TAG, "Transcription: \"${result.text}\" (${result.type}, ${result.durationMs}ms)")
+            Log.d(TAG, "${VOICE_CAPTURE_DIAGNOSTIC_MODE.name}_FINAL")
+            Log.d(TAG, "${VOICE_CAPTURE_DIAGNOSTIC_MODE.name}_STOP")
+        } catch (e: Throwable) {
+            Log.e(TAG, "PROCESS_EXIT_DETECTED: Final transcription failed: ${e.javaClass.simpleName} - ${e.message}")
+            _state.value = PipelineState.IDLE
+        }
     }
 
-    private companion object {
+    companion object {
         const val TAG = "SttPipeline"
+        val VOICE_CAPTURE_DIAGNOSTIC_MODE = if (app.swarsetu.BuildConfig.DEBUG) DiagnosticMode.VOSK else DiagnosticMode.PRODUCTION
     }
 }

@@ -79,6 +79,8 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Info
@@ -224,7 +226,6 @@ fun ChatScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isSending by viewModel.isSending.collectAsStateWithLifecycle()
-    val isLiveTranslateEnabled by viewModel.isLiveTranslateEnabled.collectAsStateWithLifecycle()
     val pendingAttachment by viewModel.pendingAttachment.collectAsStateWithLifecycle()
     val confirmAttachment by viewModel.confirmAttachment.collectAsStateWithLifecycle()
     val stagedAttachmentRelay by viewModel.stagedAttachmentRelay.collectAsStateWithLifecycle()
@@ -294,6 +295,21 @@ fun ChatScreen(
             viewModel.onInputCleared()
         }
     }
+<<<<<<< Updated upstream
+=======
+
+    val sttPartialText by viewModel.sttPartialText.collectAsStateWithLifecycle()
+    val sttLatestResult by viewModel.sttLatestResult.collectAsStateWithLifecycle()
+
+    LaunchedEffect(sttPartialText) {
+        // Walkie-Talkie flow: Do not append STT text to the input field.
+        // It is automatically sent by VoiceMessageAdapter upon completion.
+    }
+
+    LaunchedEffect(sttLatestResult) {
+        // Walkie-Talkie flow: Do not append STT text to the input field.
+    }
+>>>>>>> Stashed changes
     // Drain any payload handed in from the system share sheet (see ShareInbox): prefill the text draft
     // and stage the image through the normal attach() path, so it inherits ingest-time screening and
     // the "send anyway?" / hard-block handling. consume() is single-shot, so only the chat opened right
@@ -381,11 +397,12 @@ fun ChatScreen(
         onClearAttachment = viewModel::clearAttachment,
         onReceiveImage = viewModel::attach,
         onTyping = viewModel::onUserTyping,
-        onMentionAdded = { m -> if (pendingMentions.none { it == m }) pendingMentions.add(m) },
+        onMentionAdded = { pendingMentions.add(it) },
         onStartReply = { replyingTo = it },
         onCancelReply = { replyingTo = null },
         onReact = viewModel::react,
         onDeleteMessage = viewModel::deleteMessage,
+        onReplayTts = { text, lang -> viewModel.replayTts(text, lang) },
         onBlock = viewModel::block,
         onUnblock = viewModel::unblock,
         onCopy = { text ->
@@ -401,14 +418,13 @@ fun ChatScreen(
             }
         },
         onSaveAttachment = viewModel::saveAttachment,
-        isLiveTranslateEnabled = isLiveTranslateEnabled,
-        onToggleLiveTranslate = viewModel::toggleLiveTranslate,
         voiceRecording = voiceRecording,
         voicePlayback = voicePlayback,
         onStartVoice = { locked -> viewModel.startVoiceRecording(locked) },
         onLockVoice = viewModel::lockVoiceRecording,
         onStopVoice = viewModel::stopVoiceRecordingAndStage,
         onCancelVoice = viewModel::cancelVoiceRecording,
+        onSendAlert = viewModel::sendAlert,
         onVoicePlay = viewModel::playVoice,
         onVoiceSeek = viewModel::seekVoice,
     )
@@ -469,18 +485,24 @@ internal fun ChatScreenContent(
     onBlock: (nodeId: String) -> Unit,
     onUnblock: (nodeId: String) -> Unit,
     onCopy: (text: String) -> Unit,
+    onReplayTts: (text: String, language: String?) -> Unit = { _, _ -> },
     onSaveAttachment: (hash: String, key: String?, mime: String?) -> Unit,
     // Voice notes. `voiceRecording` is non-null only while the mic is live, and replaces the whole input row
     // while it is; `voicePlayback` is the app-wide "which note is sounding" state each bubble matches its own
     // hash against. All defaulted so the previews and the content-level tests need not name them.
+<<<<<<< Updated upstream
     isLiveTranslateEnabled: Boolean = false,
     onToggleLiveTranslate: (Boolean) -> Unit = {},
+=======
+    sttPartialText: String = "",
+>>>>>>> Stashed changes
     voiceRecording: ChatViewModel.VoiceRecording? = null,
     voicePlayback: VoicePlayer.Playback? = null,
     onStartVoice: (locked: Boolean) -> Unit = {},
     onLockVoice: () -> Unit = {},
     onStopVoice: () -> Unit = {},
     onCancelVoice: () -> Unit = {},
+    onSendAlert: () -> Unit = {},
     onVoicePlay: (hash: String, key: String?) -> Unit = { _, _ -> },
     onVoiceSeek: (hash: String, positionMs: Int) -> Unit = { _, _ -> },
 ) {
@@ -649,17 +671,13 @@ internal fun ChatScreenContent(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
-                        androidx.compose.material3.Text(
-                            text = "STT",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(end = 4.dp),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        androidx.compose.material3.Switch(
-                            checked = isLiveTranslateEnabled,
-                            onCheckedChange = { onToggleLiveTranslate(it) },
-                            modifier = Modifier.scale(0.8f)
-                        )
+                        IconButton(onClick = onSendAlert) {
+                            Icon(
+                                Icons.Filled.Warning,
+                                contentDescription = "Send Emergency Alert",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                     
                     // The overflow lives on DM and group threads (the broadcast room has no actions).
@@ -823,6 +841,7 @@ internal fun ChatScreenContent(
                                 onDelete = onDeleteMessage,
                                 onBlock = onBlock,
                                 onCopy = onCopy,
+                                onReplayTts = onReplayTts,
                                 onOpenMessageDetails = onOpenMessageDetails,
                                 onExplainRelay = { relayMarkerExplained = it },
                                 voicePlayback = voicePlayback,
@@ -1041,6 +1060,7 @@ private fun MessageBubble(
     onDelete: (messageId: String) -> Unit,
     onBlock: (nodeId: String) -> Unit,
     onCopy: (text: String) -> Unit,
+    onReplayTts: (text: String, language: String?) -> Unit = { _, _ -> },
     // Opens this message's details screen ("Message info"); defaulted no-op for previews.
     onOpenMessageDetails: (messageId: String) -> Unit = {},
     // Tapping the "nearby only" marker; defaulted no-op for previews and for bubbles that never show it.
@@ -1217,6 +1237,18 @@ private fun MessageBubble(
                                         ),
                                     style = bodyStyle,
                                 )
+                                if (row.voiceTextLanguage != null) {
+                                    IconButton(
+                                        onClick = { onReplayTts(row.body, row.voiceTextLanguage) },
+                                        modifier = Modifier.padding(start = 4.dp).size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.PlayArrow,
+                                            contentDescription = "Replay Translated Audio",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             }
                         }
                         // Reach, not delivery — kept on its own line above the tick so the two facts stay
@@ -2039,6 +2071,11 @@ private fun MessageInput(
     onCancelVoice: () -> Unit = {},
     onVoicePlay: (hash: String, key: String?) -> Unit = { _, _ -> },
     onVoiceSeek: (hash: String, positionMs: Int) -> Unit = { _, _ -> },
+<<<<<<< Updated upstream
+=======
+    sttPartialText: String = "",
+    isLiveTranslateEnabled: Boolean = false,
+>>>>>>> Stashed changes
 ) {
     // Capture images committed by the keyboard (Gboard GIFs), drag-and-drop, or paste. The state-based
     // BasicTextField is required here: it advertises the accepted content MIME types to the IME, so the
@@ -2227,6 +2264,12 @@ private fun MessageInput(
                             locked = voiceRecording.locked,
                             onCancel = onCancelVoice,
                             modifier = Modifier.weight(1f),
+<<<<<<< Updated upstream
+=======
+                            liveText = sttPartialText.ifBlank {
+                                if (isLiveTranslateEnabled) "Sending..." else "Listening..."
+                            },
+>>>>>>> Stashed changes
                         )
                     } else {
                         Box(

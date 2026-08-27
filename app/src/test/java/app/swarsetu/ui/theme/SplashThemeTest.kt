@@ -28,8 +28,8 @@ class SplashThemeTest {
     @Test
     fun lightSplashBackgroundMatchesTheComposeLightBackground() {
         assertEquals(
-            "values/colors.xml splash_background must equal SwarSetuTheme's BackgroundLight",
-            BackgroundLight.hex(),
+            "values/colors.xml splash_background must equal SwarSetuTheme's SwarsetuBackgroundLight",
+            SwarsetuBackgroundLight.hex(),
             colorValue("values"),
         )
     }
@@ -38,8 +38,8 @@ class SplashThemeTest {
     fun darkSplashBackgroundMatchesTheComposeDarkBackground() {
         // The one that actually fixes issue #2: without a night-qualified value the splash stays light.
         assertEquals(
-            "values-night/colors.xml splash_background must equal SwarSetuTheme's BackgroundDark",
-            BackgroundDark.hex(),
+            "values-night/colors.xml splash_background must equal SwarSetuTheme's SwarsetuBackgroundDark",
+            SwarsetuBackgroundDark.hex(),
             colorValue("values-night"),
         )
     }
