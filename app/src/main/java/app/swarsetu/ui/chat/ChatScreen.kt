@@ -1192,7 +1192,12 @@ private fun MessageBubble(
                             if (hasText) Spacer(Modifier.height(4.dp))
                         }
                         
-                        val displayText = row.translatedText ?: row.sourceText ?: row.body
+                        val displayText =
+                            if (row.mine) {
+                                row.sourceText ?: row.translatedText ?: row.body
+                            } else {
+                                row.translatedText ?: row.sourceText ?: row.body
+                            }
                         if (displayText.isNotBlank()) {
                             if (row.moderationFlagged && !revealed) {
                                 Text(
@@ -1233,14 +1238,32 @@ private fun MessageBubble(
                                     style = bodyStyle,
                                 )
                                 if (row.messageType == app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE) {
-                                    IconButton(
-                                        onClick = { onReplayTts(displayText, row.targetLanguage ?: row.sourceLanguage) },
-                                        modifier = Modifier.padding(start = 4.dp).size(24.dp),
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(top = 4.dp),
                                     ) {
-                                        Icon(
-                                            Icons.Filled.PlayArrow,
-                                            contentDescription = "Replay Translated Audio",
-                                            tint = MaterialTheme.colorScheme.primary,
+                                        IconButton(
+                                            onClick = {
+                                                val textToSpeak = if (row.mine) (row.sourceText ?: displayText) else (row.translatedText ?: displayText)
+                                                val langToSpeak = if (row.mine) (row.sourceLanguage ?: "en") else (row.targetLanguage ?: row.sourceLanguage ?: "hi")
+                                                onReplayTts(textToSpeak, langToSpeak)
+                                            },
+                                            modifier = Modifier.size(28.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.PlayArrow,
+                                                contentDescription = stringResource(R.string.chat_play_voice_desc),
+                                                tint = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                        Text(
+                                            text = if (row.mine) {
+                                                stringResource(R.string.chat_voice_note_badge, row.sourceLanguage?.uppercase() ?: "AUDIO")
+                                            } else {
+                                                stringResource(R.string.chat_translated_badge, row.targetLanguage?.uppercase() ?: "AUDIO")
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
                                 }

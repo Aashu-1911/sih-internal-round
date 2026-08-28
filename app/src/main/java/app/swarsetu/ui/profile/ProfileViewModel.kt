@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 import app.swarsetu.stt.SttLanguage
+import app.swarsetu.stt.SttModelManager
+import kotlinx.coroutines.flow.flow
 
 /** The Internet-relay plane, as the Profile row summarises it before handing off to its own screen. */
 data class RelaySummary(
@@ -45,6 +47,7 @@ class ProfileViewModel(
     // clock makes its `delay` instant, so a ViewModel test that drives this with `advanceUntilIdle()`
     // would spin. Taking the flow lets a test supply a finite one.
     relayFacts: Flow<RelayFacts>,
+    private val sttModelManager: SttModelManager,
 ) : ViewModel() {
     val nodeId = MutableStateFlow("")
 
@@ -60,9 +63,45 @@ class ProfileViewModel(
             .map { SttLanguage.fromCode(it) ?: SttLanguage.HINDI }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SttLanguage.HINDI)
 
+    val availableLanguages: StateFlow<List<SttLanguage>> =
+        MutableStateFlow(SttLanguage.entries)
+
+    private val _installedLanguages = MutableStateFlow<Set<SttLanguage>>(emptySet())
+    val installedLanguages: StateFlow<Set<SttLanguage>> = _installedLanguages.asStateFlow()
+
+    private val _downloadingLanguage = MutableStateFlow<SttLanguage?>(null)
+    val downloadingLanguage: StateFlow<SttLanguage?> = _downloadingLanguage.asStateFlow()
+
+    private val _downloadProgress = MutableStateFlow(0f)
+    val downloadProgress: StateFlow<Float> = _downloadProgress.asStateFlow()
+
+    fun checkInstalledLanguages() {
+        viewModelScope.launch {
+            val installed = SttLanguage.entries.filter { sttModelManager.isAvailable(it) }.toSet()
+            _installedLanguages.value = installed
+        }
+    }
+
     fun setPreferredLanguage(language: SttLanguage) {
         viewModelScope.launch {
             settings.setSttLanguageCode(language.code)
+            checkInstalledLanguages()
+        }
+    }
+
+    fun downloadModel(language: SttLanguage) {
+        if (_downloadingLanguage.value != null) return
+        _downloadingLanguage.value = language
+        _downloadProgress.value = 0f
+        viewModelScope.launch {
+            try {
+                sttModelManager.downloadSttModel(language) { progress ->
+                    _downloadProgress.value = progress
+                }
+                checkInstalledLanguages()
+            } finally {
+                _downloadingLanguage.value = null
+            }
         }
     }
 
@@ -124,6 +163,7 @@ class ProfileViewModel(
             _status.value = status
             lastSavedName.value = name
             lastSavedStatus.value = status
+            checkInstalledLanguages()
         }
     }
 

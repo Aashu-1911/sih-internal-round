@@ -65,7 +65,7 @@ class VoskEngine(
 
     override suspend fun initialize(config: SttConfig) =
         mutex.withLock {
-            if (initialized && _currentLanguage == config.language) {
+            if (initialized && _currentLanguage == config.language && model != null) {
                 Log.d(TAG, "Already initialized for ${config.language.code}")
                 return@withLock
             }
@@ -77,8 +77,8 @@ class VoskEngine(
             _currentLanguage = config.language
 
             if (!modelManager.isAvailable(config.language)) {
-                Log.w(TAG, "No model available for ${config.language.code} — returning empty results")
-                initialized = true
+                Log.w(TAG, "No model available for ${config.language.code} — will retry when available")
+                initialized = false
                 return@withLock
             }
 
@@ -88,13 +88,13 @@ class VoskEngine(
                 Log.d(TAG, "Initialized for ${config.language.code}")
             } catch (e: Exception) {
                 Log.e(TAG, "Model load failed for ${config.language.code}: ${e.message}", e)
-                initialized = true // Graceful degradation
+                initialized = false
             }
         }
 
     override suspend fun setLanguage(language: SttLanguage) {
         val currentConfig = _config ?: SttConfig()
-        if (language == _currentLanguage && initialized) return
+        if (language == _currentLanguage && initialized && model != null) return
         initialize(currentConfig.copy(language = language))
     }
 

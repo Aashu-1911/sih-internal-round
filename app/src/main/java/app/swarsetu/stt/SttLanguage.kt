@@ -53,9 +53,16 @@ enum class SttLanguage(
             entries.filter { it.assetDir != null }.toSet()
 
         /**
-         * Resolve a language from its BCP-47 code, or null when the code is unknown.
-         * Case-insensitive: "HI", "hi", "Hi" all map to [HINDI].
+         * Resolve a language from its BCP-47 code, enum name, or display name, or null when unknown.
+         * Case-insensitive: "hi", "HI", "HINDI", "Hindi" all map to [HINDI].
          */
-        fun fromCode(code: String): SttLanguage? = entries.firstOrNull { it.code.equals(code, ignoreCase = true) }
+        fun fromCode(code: String?): SttLanguage? {
+            if (code.isNullOrBlank()) return null
+            return entries.firstOrNull {
+                it.code.equals(code, ignoreCase = true) ||
+                    it.name.equals(code, ignoreCase = true) ||
+                    it.displayName.equals(code, ignoreCase = true)
+            }
+        }
     }
 }

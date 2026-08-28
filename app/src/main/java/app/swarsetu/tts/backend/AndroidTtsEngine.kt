@@ -27,16 +27,23 @@ class AndroidTtsEngine(
 
     override suspend fun initialize(): Boolean =
         withContext(Dispatchers.Main) {
-            if (isReady) return@withContext true
+            if (isReady && tts != null) return@withContext true
+
+            val existing = initDeferred
+            if (existing != null && existing.isActive) {
+                return@withContext existing.await()
+            }
 
             val deferred = CompletableDeferred<Boolean>()
             initDeferred = deferred
 
             try {
-                tts = TextToSpeech(context, this@AndroidTtsEngine)
+                tts = TextToSpeech(context.applicationContext, this@AndroidTtsEngine)
                 deferred.await()
             } catch (e: Exception) {
                 isReady = false
+                initDeferred?.complete(false)
+                initDeferred = null
                 false
             }
         }

@@ -35,34 +35,40 @@ class VoiceMessageReceiver(
         return scope.launch {
             // Determine the receiving user's preferred language.
             val preferredLanguageString = settingsStore.sttLanguageCode.first().lowercase()
-            
-            // The message already comes with translatedText and targetLanguage if it was translated by the sender (DM).
-            // For groups, it might only have sourceText and sourceLanguage.
-            var textToSpeak = entity.translatedText ?: entity.sourceText ?: entity.body
-            var languageToSpeak = entity.targetLanguage ?: entity.sourceLanguage ?: "en"
+            val normalizedPreferred = translatorEngine.normalizeToLanguageTag(preferredLanguageString) ?: preferredLanguageString
 
-            // If the message hasn't been translated to our language yet (e.g. group broadcast), translate it now.
-            if (languageToSpeak != preferredLanguageString && entity.sourceText != null && entity.sourceLanguage != null) {
-                val translated = translatorEngine.translate(
-                    text = entity.sourceText,
-                    sourceLang = entity.sourceLanguage.lowercase(),
-                    targetLang = preferredLanguageString,
-                )
-                if (translated != entity.sourceText) {
-                    textToSpeak = translated
-                    languageToSpeak = preferredLanguageString
-                    
-                    // Update entity with translated text for local display
-                    val updatedEntity = entity.copy(
-                        translatedText = textToSpeak,
-                        targetLanguage = languageToSpeak,
-                    )
-                    messageRepository.save(updatedEntity)
+            var textToSpeak = entity.translatedText ?: entity.body
+            var languageToSpeak = entity.targetLanguage ?: entity.sourceLanguage ?: "en"
+            val normalizedTarget = translatorEngine.normalizeToLanguageTag(languageToSpeak) ?: languageToSpeak
+
+            // If the message has not been translated to receiver's preferred language, translate now
+            if (normalizedTarget != normalizedPreferred || entity.translatedText == null) {
+                val sourceLang = translatorEngine.normalizeToLanguageTag(entity.sourceLanguage ?: "en") ?: "en"
+                if (sourceLang != normalizedPreferred) {
+                    val inputToTranslate = entity.sourceText ?: entity.body
+                    if (inputToTranslate.isNotBlank()) {
+                        val translated = translatorEngine.translate(
+                            text = inputToTranslate,
+                            sourceLang = sourceLang,
+                            targetLang = normalizedPreferred,
+                        )
+                        if (translated.isNotBlank()) {
+                            textToSpeak = translated
+                            languageToSpeak = normalizedPreferred
+
+                            // Update entity in DB with translated text for local display
+                            val updatedEntity = entity.copy(
+                                translatedText = textToSpeak,
+                                targetLanguage = languageToSpeak,
+                            )
+                            messageRepository.save(updatedEntity)
+                        }
+                    }
                 }
             }
 
             val finalLanguage = parseLanguage(languageToSpeak)
-            android.util.Log.d("VoiceMessageReceiver", "TTS playing message ${entity.id} in $finalLanguage: \"$textToSpeak\"")
+            android.util.Log.d("VoiceMessageReceiver", "TTS playing inbound voice message ${entity.id} in $finalLanguage: \"$textToSpeak\"")
 
             val request =
                 TtsRequest(

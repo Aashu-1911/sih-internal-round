@@ -558,12 +558,8 @@ class ChatViewModel(
         text: String,
         languageCode: String?,
     ) {
-        val ttsLang =
-            try {
-                languageCode?.let { TtsLanguage.valueOf(it.uppercase()) } ?: TtsLanguage.HINDI
-            } catch (e: Exception) {
-                TtsLanguage.HINDI
-            }
+        if (text.isBlank()) return
+        val ttsLang = TtsLanguage.fromLanguageCode(languageCode) ?: TtsLanguage.HINDI
         viewModelScope.launch {
             ttsManager.speak(
                 TtsRequest(
@@ -573,7 +569,7 @@ class ChatViewModel(
                             .toString(),
                     text = text,
                     language = ttsLang,
-                    priority = TtsPriority.NORMAL,
+                    priority = TtsPriority.ALERT,
                 ),
             )
         }
@@ -594,7 +590,7 @@ class ChatViewModel(
             try {
                 val sent =
                     meshManager.sendChat(
-                        text = "EMERGENCY ALERT: Please check on me.",
+                        text = context.getString(R.string.emergency_alert_text),
                         recipientId = null,
                         isAlert = true,
                         messageType = app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE,

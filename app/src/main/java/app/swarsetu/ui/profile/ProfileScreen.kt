@@ -25,24 +25,31 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -94,6 +101,10 @@ internal data class ProfileFormState(
     val relay: RelaySummary,
     val isDirty: Boolean,
     val preferredLanguage: SttLanguage = SttLanguage.HINDI,
+    val availableLanguages: List<SttLanguage> = SttLanguage.entries,
+    val installedLanguages: Set<SttLanguage> = emptySet(),
+    val downloadingLanguage: SttLanguage? = null,
+    val downloadProgress: Float = 0f,
 )
 
 @Composable
@@ -112,6 +123,10 @@ fun ProfileScreen(
     val relay by viewModel.relaySummary.collectAsStateWithLifecycle()
     val isDirty by viewModel.isDirty.collectAsStateWithLifecycle()
     val preferredLanguage by viewModel.preferredLanguage.collectAsStateWithLifecycle()
+    val availableLanguages by viewModel.availableLanguages.collectAsStateWithLifecycle()
+    val installedLanguages by viewModel.installedLanguages.collectAsStateWithLifecycle()
+    val downloadingLanguage by viewModel.downloadingLanguage.collectAsStateWithLifecycle()
+    val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
 
     // Navigate back only once Save has finished persisting (the write outlives this composition because
     // it runs in viewModelScope, but we wait so the user lands back on the previous screen on success).
@@ -146,6 +161,10 @@ fun ProfileScreen(
                 relay = relay,
                 isDirty = isDirty,
                 preferredLanguage = preferredLanguage,
+                availableLanguages = availableLanguages,
+                installedLanguages = installedLanguages,
+                downloadingLanguage = downloadingLanguage,
+                downloadProgress = downloadProgress,
             ),
         batteryExempt = rememberBatteryExempt(),
         onBack = onBack,
@@ -155,6 +174,7 @@ fun ProfileScreen(
         onStatusCommit = viewModel::commitStatus,
         onToggleContentFiltering = viewModel::setContentFilteringEnabled,
         onLanguageChange = viewModel::setPreferredLanguage,
+        onDownloadModel = viewModel::downloadModel,
         onOpenRelays = onOpenRelays,
         onPickPhoto = {
             picker.launch(
@@ -179,6 +199,7 @@ internal fun ProfileScreenContent(
     onStatusCommit: () -> Unit,
     onToggleContentFiltering: (Boolean) -> Unit,
     onLanguageChange: (SttLanguage) -> Unit = {},
+    onDownloadModel: (SttLanguage) -> Unit = {},
     onOpenRelays: () -> Unit,
     // Whether the Internet-relay plane is introduced at all in this build. A parameter rather than a
     // bare BuildConfig read so the hidden case is previewable and testable; see app/build.gradle.kts.
@@ -238,7 +259,7 @@ internal fun ProfileScreenContent(
                         .testTag("profile_name")
                         .onFocusChanged { if (!it.isFocused) onNameCommit() },
                 label = { Text(stringResource(R.string.profile_display_name_label)) },
-                placeholder = { if (form.alias.isNotEmpty()) Text(form.alias) },
+                placeholder = { Text(form.alias) },
                 singleLine = true,
                 supportingText = { CharCounter(form.name.length, TextLimits.DISPLAY_NAME) },
             )
@@ -262,7 +283,17 @@ internal fun ProfileScreenContent(
 
             PreferredLanguageSection(
                 selectedLanguage = form.preferredLanguage,
+                allLanguages = form.availableLanguages,
+                installedLanguages = form.installedLanguages,
                 onLanguageChange = onLanguageChange,
+            )
+
+            ActiveVoiceModelSection(
+                language = form.preferredLanguage,
+                isInstalled = form.installedLanguages.contains(form.preferredLanguage),
+                isDownloading = form.downloadingLanguage == form.preferredLanguage,
+                downloadProgress = form.downloadProgress,
+                onDownload = { onDownloadModel(form.preferredLanguage) },
             )
 
             ContentFilteringRow(
@@ -289,6 +320,8 @@ internal fun ProfileScreenContent(
 @Composable
 private fun PreferredLanguageSection(
     selectedLanguage: SttLanguage,
+    allLanguages: List<SttLanguage>,
+    installedLanguages: Set<SttLanguage>,
     onLanguageChange: (SttLanguage) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -298,12 +331,12 @@ private fun PreferredLanguageSection(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            text = "Preferred Language (Walkie-Talkie & TTS)",
+            text = stringResource(R.string.profile_pref_lang_title),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = "Voice messages you speak and receive will be transcribed, translated, and spoken in this language.",
+            text = stringResource(R.string.profile_pref_lang_desc),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -317,7 +350,7 @@ private fun PreferredLanguageSection(
                 value = selectedLanguage.displayName,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Selected Language") },
+                label = { Text(stringResource(R.string.profile_pref_lang_selector_label)) },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                 colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                 modifier = Modifier.menuAnchor().fillMaxWidth(),
@@ -326,14 +359,175 @@ private fun PreferredLanguageSection(
                 expanded = expanded,
                 onDismissRequest = { expanded = false },
             ) {
-                SttLanguage.entries.forEach { lang ->
+                allLanguages.forEach { lang ->
+                    val isInstalled = installedLanguages.contains(lang)
                     DropdownMenuItem(
-                        text = { Text(lang.displayName) },
+                        text = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(lang.displayName)
+                                if (isInstalled) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                    ) {
+                                        Text(
+                                            text = "Ready",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        },
                         onClick = {
                             onLanguageChange(lang)
                             expanded = false
                         },
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActiveVoiceModelSection(
+    language: SttLanguage,
+    isInstalled: Boolean,
+    isDownloading: Boolean,
+    downloadProgress: Float,
+    onDownload: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.settings_active_voice_model_title),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // STT Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Filled.Mic,
+                        contentDescription = stringResource(R.string.settings_active_voice_model_stt),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.settings_active_voice_model_stt),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_active_voice_model_vosk, language.displayName),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+
+                    if (isInstalled) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_voice_model_status_ready),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    } else if (isDownloading) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_voice_model_downloading, (downloadProgress * 100).toInt()),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = onDownload,
+                            modifier = Modifier.height(32.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_voice_model_download),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
+
+                if (isDownloading) {
+                    LinearProgressIndicator(
+                        progress = { downloadProgress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                // TTS Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = stringResource(R.string.settings_active_voice_model_tts),
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.settings_active_voice_model_tts),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_active_voice_model_system_tts, language.displayName),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_voice_model_tts_status),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                 }
             }
         }

@@ -31,6 +31,9 @@ import app.swarsetu.translation.TranslatorEngine
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
+import androidx.compose.ui.res.stringResource
+import app.swarsetu.R
+
 @Composable
 fun LanguageInitScreen(
     onInitializationComplete: () -> Unit,
@@ -47,25 +50,31 @@ fun LanguageInitScreen(
     var errorMessage by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
 
+    val stageTranslation = stringResource(R.string.lang_init_stage_translation)
+    val stageSpeech = stringResource(R.string.lang_init_stage_speech)
+    val speechEn = stringResource(R.string.lang_init_speech_en)
+    val speechHi = stringResource(R.string.lang_init_speech_hi)
+    val errorDefault = stringResource(R.string.lang_init_error_default)
+
     val downloadModels = {
         isError = false
         isDownloading = true
         errorMessage = ""
         scope.launch {
             try {
-                downloadStage = "Downloading Translation Models"
+                downloadStage = stageTranslation
                 translatorEngine.downloadAllRequiredModels { completed, total, currentLang ->
                     currentDownloading = "Translation: $currentLang"
                     completedModels = completed
                     totalModels = total + 2
                 }
 
-                downloadStage = "Downloading Offline Speech Models"
-                currentDownloading = "Speech Model: English"
+                downloadStage = stageSpeech
+                currentDownloading = speechEn
                 sttModelManager.downloadSttModel(SttLanguage.ENGLISH)
                 completedModels++
 
-                currentDownloading = "Speech Model: Hindi"
+                currentDownloading = speechHi
                 sttModelManager.downloadSttModel(SttLanguage.HINDI)
                 completedModels++
 
@@ -74,7 +83,7 @@ fun LanguageInitScreen(
             } catch (e: Exception) {
                 isError = true
                 isDownloading = false
-                errorMessage = e.message ?: "Download encountered an issue."
+                errorMessage = e.message ?: errorDefault
             }
         }
     }
@@ -95,13 +104,13 @@ fun LanguageInitScreen(
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "Voice & Translation Models",
+            text = stringResource(R.string.lang_init_title),
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Download native language & speech packs to ensure 100% offline walkie-talkie communication (~250MB).",
+            text = stringResource(R.string.lang_init_desc),
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -110,26 +119,26 @@ fun LanguageInitScreen(
 
         if (!isDownloading && !isError) {
             Button(onClick = { downloadModels() }) {
-                Text("Install Language Models (~250MB)")
+                Text(stringResource(R.string.lang_init_download_button))
             }
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedButton(onClick = { skipInit() }) {
-                Text("Skip for Now (Offline Mode)")
+                Text(stringResource(R.string.lang_init_skip_button))
             }
         } else if (isError) {
             Text(
-                text = "Download paused or incomplete: $errorMessage",
+                text = errorMessage.ifBlank { errorDefault },
                 color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(16.dp))
             Row {
                 Button(onClick = { downloadModels() }) {
-                    Text("Retry")
+                    Text(stringResource(R.string.lang_init_retry_button))
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 OutlinedButton(onClick = { skipInit() }) {
-                    Text("Continue Anyway")
+                    Text(stringResource(R.string.lang_init_skip_button))
                 }
             }
         } else {
@@ -143,14 +152,14 @@ fun LanguageInitScreen(
             Spacer(modifier = Modifier.height(4.dp))
             if (currentDownloading.isNotBlank()) {
                 Text(
-                    text = "Fetching: $currentDownloading",
+                    text = currentDownloading,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(modifier = Modifier.height(24.dp))
             OutlinedButton(onClick = { skipInit() }) {
-                Text("Continue in Background")
+                Text(stringResource(R.string.lang_init_skip_button))
             }
         }
     }

@@ -43,10 +43,8 @@ class TtsManager(
      * Submits a text [request] to be spoken.
      */
     suspend fun speak(request: TtsRequest) {
-        // Try to gain audio focus before starting speech
-        if (audioFocusManager.requestFocus()) {
-            scheduler.submit(request)
-        }
+        runCatching { audioFocusManager.requestFocus() }
+        scheduler.submit(request)
     }
 
     /**

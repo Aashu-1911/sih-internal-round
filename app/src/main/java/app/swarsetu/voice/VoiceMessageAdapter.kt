@@ -95,9 +95,10 @@ class VoiceMessageAdapter(
         val t2 = System.currentTimeMillis()
 
         // Calculate payload size by simulating exactly what MeshController builds
+        val outboundText = translatedText ?: result.text
         val content =
             MessageContent(
-                body = result.text,
+                body = outboundText,
                 replyTo = context.replyTo,
                 messageType = app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE,
                 sourceLanguage = sourceLanguage,
@@ -114,7 +115,7 @@ class VoiceMessageAdapter(
         voiceController.reportOutboundMessageMetrics(messageId, payloadSizeBytes, t2, t3)
 
         meshController.sendChat(
-            text = result.text,
+            text = outboundText,
             recipientId = context.recipientId,
             group = context.group,
             replyTo = context.replyTo,

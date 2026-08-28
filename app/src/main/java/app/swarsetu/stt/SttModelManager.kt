@@ -243,6 +243,11 @@ class SttModelManager(
             mapOf(
                 SttLanguage.ENGLISH to "https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip",
                 SttLanguage.HINDI to "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip",
+                SttLanguage.GUJARATI to "https://alphacephei.com/vosk/models/vosk-model-small-gu-0.42.zip",
+                SttLanguage.MARATHI to "https://alphacephei.com/vosk/models/vosk-model-small-mr-0.22.zip",
+                SttLanguage.BENGALI to "https://alphacephei.com/vosk/models/vosk-model-small-bn-0.22.zip",
+                SttLanguage.TAMIL to "https://alphacephei.com/vosk/models/vosk-model-small-ta-0.22.zip",
+                SttLanguage.TELUGU to "https://alphacephei.com/vosk/models/vosk-model-small-te-0.42.zip",
             )
     }
 }

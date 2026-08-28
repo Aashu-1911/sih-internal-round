@@ -1609,8 +1609,13 @@ class MeshManager(
 
     private fun watchProfileChanges(session: CoroutineScope) {
         session.launch {
-            combine(settings.displayName, settings.status, settings.avatarUpdatedAt) { name, status, avatarAt ->
-                Triple(name, status, avatarAt)
+            combine(
+                settings.displayName,
+                settings.status,
+                settings.avatarUpdatedAt,
+                settings.sttLanguageCode,
+            ) { name, status, avatarAt, langCode ->
+                listOf(name, status, avatarAt.toString(), langCode)
             }.drop(1) // skip the initial stored value; only react to real edits
                 // A Save writes name+status in one transaction; without this the duplicate flow
                 // re-emits would broadcast more than once. Also drops no-op saves.

@@ -30,6 +30,9 @@ import app.swarsetu.stt.SttLanguage
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
+import androidx.compose.ui.res.stringResource
+import app.swarsetu.R
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileSetupScreen(
@@ -50,13 +53,13 @@ fun ProfileSetupScreen(
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "Set Up Your Profile",
+            text = stringResource(R.string.profile_setup_title),
             style = MaterialTheme.typography.headlineSmall,
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Enter your display name and choose your preferred language to receive translated Walkie-Talkie messages.",
+            text = stringResource(R.string.profile_setup_desc),
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -66,7 +69,7 @@ fun ProfileSetupScreen(
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Display Name") },
+            label = { Text(stringResource(R.string.profile_setup_name_label)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -82,7 +85,7 @@ fun ProfileSetupScreen(
                 value = selectedLanguage.displayName,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Preferred Language") },
+                label = { Text(stringResource(R.string.profile_setup_lang_label)) },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                 colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                 modifier = Modifier.menuAnchor().fillMaxWidth(),
@@ -109,7 +112,7 @@ fun ProfileSetupScreen(
             onClick = {
                 scope.launch {
                     settingsStore.setDisplayName(name.trim())
-                    settingsStore.setSttLanguage(selectedLanguage.name)
+                    settingsStore.setSttLanguage(selectedLanguage.code)
                     settingsStore.setProfileSetupComplete(true)
                     onSetupComplete()
                 }
@@ -117,7 +120,7 @@ fun ProfileSetupScreen(
             enabled = name.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Complete Setup")
+            Text(stringResource(R.string.profile_setup_complete_button))
         }
     }
 }

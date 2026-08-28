@@ -491,9 +491,47 @@
     <!-- Per-recipient delivery, on a group message you sent -->
     <string name="message_details_delivered_to">Delivered to</string>
     <string name="message_details_waiting_on">Waiting on</string>
-    <!-- The broadcast room has no roster, so its list has no total to count against -->
     <string name="message_details_received_by">Received by %1$d</string>
     <!-- Row content descriptions: a section header is not announced with the rows under it -->
     <string name="message_details_recipient_delivered">%1$s, delivered %2$s</string>
     <string name="message_details_recipient_waiting">%1$s, not delivered yet</string>
+
+    <!-- Voice & Translation / Onboarding / Profile -->
+    <string name="lang_init_title">Voice &amp; Translation Models</string>
+    <string name="lang_init_desc">To enable Walkie-Talkie voice translation offline over the mesh, SwarSetu needs to download language models.</string>
+    <string name="lang_init_download_button">Download Models</string>
+    <string name="lang_init_skip_button">Skip for Now</string>
+    <string name="lang_init_retry_button">Retry Download</string>
+    <string name="lang_init_error_default">Download encountered an issue.</string>
+    <string name="lang_init_stage_translation">Downloading Translation Models</string>
+    <string name="lang_init_stage_speech">Downloading Offline Speech Models</string>
+    <string name="lang_init_progress_translation">Translation: %1$s</string>
+    <string name="lang_init_speech_en">Speech Model: English</string>
+    <string name="lang_init_speech_hi">Speech Model: Hindi</string>
+
+    <string name="profile_setup_title">Set Up Your Profile</string>
+    <string name="profile_setup_desc">Enter your display name and choose your preferred language to receive translated Walkie-Talkie messages.</string>
+    <string name="profile_setup_name_label">Display Name</string>
+    <string name="profile_setup_lang_label">Preferred Language</string>
+    <string name="profile_setup_complete_button">Complete Setup</string>
+
+    <string name="profile_pref_lang_title">Preferred Language (Walkie-Talkie &amp; TTS)</string>
+    <string name="profile_pref_lang_desc">Voice messages you speak and receive will be transcribed, translated, and spoken in this language.</string>
+    <string name="profile_pref_lang_selector_label">Selected Language (Installed Models)</string>
+    <string name="profile_pref_lang_ready">%1$s (Ready)</string>
+
+    <string name="chat_voice_note_badge">Voice Note (%1$s)</string>
+    <string name="chat_translated_badge">Translated (%1$s)</string>
+    <string name="chat_play_voice_desc">Play Voice Audio</string>
+    <string name="emergency_alert_text">EMERGENCY ALERT: Please check on me.</string>
+
+    <string name="settings_active_voice_model_title">Active Voice Models</string>
+    <string name="settings_active_voice_model_stt">Speech Recognition (STT)</string>
+    <string name="settings_active_voice_model_tts">Voice Synthesis (TTS)</string>
+    <string name="settings_active_voice_model_vosk">Vosk Offline Engine (%1$s)</string>
+    <string name="settings_active_voice_model_system_tts">System Text-To-Speech (%1$s)</string>
+    <string name="settings_voice_model_status_ready">Active • 16 kHz Offline</string>
+    <string name="settings_voice_model_tts_status">Ready • Real-Time Playback</string>
+    <string name="settings_voice_model_download">Download</string>
+    <string name="settings_voice_model_downloading">Downloading (%1$d%%)…</string>
 </resources>
