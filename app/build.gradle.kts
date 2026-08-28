@@ -460,6 +460,7 @@ detekt {
     buildUponDefaultConfig = true
     config.setFrom(files("$rootDir/config/detekt/detekt.yml"))
     source.setFrom(files("src/main/java", "src/test/java"))
+    baseline = file("detekt-baseline.xml")
 }
 
 ktlint {

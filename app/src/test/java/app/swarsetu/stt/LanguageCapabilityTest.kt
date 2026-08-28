@@ -41,7 +41,6 @@ import org.junit.Test
  * "AVAILABLE" (model file present) and "INFERENCE" (model produces output) are tested in androidTest.
  */
 class LanguageCapabilityTest {
-
     // --- 1. All 10 target languages are declared ---
 
     @Test
@@ -178,18 +177,19 @@ class LanguageCapabilityTest {
 
     @Test
     fun `fromCode is case-insensitive for all codes`() {
-        val testCases = listOf(
-            "HI" to SttLanguage.HINDI,
-            "Gu" to SttLanguage.GUJARATI,
-            "MR" to SttLanguage.MARATHI,
-            "Kn" to SttLanguage.KANNADA,
-            "ML" to SttLanguage.MALAYALAM,
-            "Ta" to SttLanguage.TAMIL,
-            "TE" to SttLanguage.TELUGU,
-            "Or" to SttLanguage.ODIA,
-            "BN" to SttLanguage.BENGALI,
-            "En" to SttLanguage.ENGLISH,
-        )
+        val testCases =
+            listOf(
+                "HI" to SttLanguage.HINDI,
+                "Gu" to SttLanguage.GUJARATI,
+                "MR" to SttLanguage.MARATHI,
+                "Kn" to SttLanguage.KANNADA,
+                "ML" to SttLanguage.MALAYALAM,
+                "Ta" to SttLanguage.TAMIL,
+                "TE" to SttLanguage.TELUGU,
+                "Or" to SttLanguage.ODIA,
+                "BN" to SttLanguage.BENGALI,
+                "En" to SttLanguage.ENGLISH,
+            )
         testCases.forEach { (code, expected) ->
             assertEquals("fromCode($code) should be $expected", expected, SttLanguage.fromCode(code))
         }

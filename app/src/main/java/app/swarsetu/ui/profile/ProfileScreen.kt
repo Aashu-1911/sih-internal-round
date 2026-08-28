@@ -77,6 +77,12 @@ import app.swarsetu.ui.preview.SwarSetuPreview
 import app.swarsetu.ui.requestIgnoreBatteryOptimizations
 import org.koin.androidx.compose.koinViewModel
 
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import app.swarsetu.stt.SttLanguage
+
 /** UI-local projection of [ProfileViewModel]'s per-field flows for the stateless content. */
 internal data class ProfileFormState(
     val name: String,
@@ -87,6 +93,7 @@ internal data class ProfileFormState(
     val contentFilteringEnabled: Boolean,
     val relay: RelaySummary,
     val isDirty: Boolean,
+    val preferredLanguage: SttLanguage = SttLanguage.HINDI,
 )
 
 @Composable
@@ -104,6 +111,7 @@ fun ProfileScreen(
     val contentFilteringEnabled by viewModel.contentFilteringEnabled.collectAsStateWithLifecycle()
     val relay by viewModel.relaySummary.collectAsStateWithLifecycle()
     val isDirty by viewModel.isDirty.collectAsStateWithLifecycle()
+    val preferredLanguage by viewModel.preferredLanguage.collectAsStateWithLifecycle()
 
     // Navigate back only once Save has finished persisting (the write outlives this composition because
     // it runs in viewModelScope, but we wait so the user lands back on the previous screen on success).
@@ -137,6 +145,7 @@ fun ProfileScreen(
                 contentFilteringEnabled = contentFilteringEnabled,
                 relay = relay,
                 isDirty = isDirty,
+                preferredLanguage = preferredLanguage,
             ),
         batteryExempt = rememberBatteryExempt(),
         onBack = onBack,
@@ -145,6 +154,7 @@ fun ProfileScreen(
         onStatusChange = viewModel::setStatus,
         onStatusCommit = viewModel::commitStatus,
         onToggleContentFiltering = viewModel::setContentFilteringEnabled,
+        onLanguageChange = viewModel::setPreferredLanguage,
         onOpenRelays = onOpenRelays,
         onPickPhoto = {
             picker.launch(
@@ -168,6 +178,7 @@ internal fun ProfileScreenContent(
     onStatusChange: (String) -> Unit,
     onStatusCommit: () -> Unit,
     onToggleContentFiltering: (Boolean) -> Unit,
+    onLanguageChange: (SttLanguage) -> Unit = {},
     onOpenRelays: () -> Unit,
     // Whether the Internet-relay plane is introduced at all in this build. A parameter rather than a
     // bare BuildConfig read so the hidden case is previewable and testable; see app/build.gradle.kts.
@@ -249,6 +260,11 @@ internal fun ProfileScreenContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            PreferredLanguageSection(
+                selectedLanguage = form.preferredLanguage,
+                onLanguageChange = onLanguageChange,
+            )
+
             ContentFilteringRow(
                 enabled = form.contentFilteringEnabled,
                 onToggle = onToggleContentFiltering,
@@ -264,6 +280,61 @@ internal fun ProfileScreenContent(
                 modifier = Modifier.fillMaxWidth().testTag("profile_save"),
             ) {
                 Text(stringResource(R.string.action_save))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PreferredLanguageSection(
+    selectedLanguage: SttLanguage,
+    onLanguageChange: (SttLanguage) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Preferred Language (Walkie-Talkie & TTS)",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = "Voice messages you speak and receive will be transcribed, translated, and spoken in this language.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = !expanded },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            OutlinedTextField(
+                value = selectedLanguage.displayName,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Selected Language") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                SttLanguage.entries.forEach { lang ->
+                    DropdownMenuItem(
+                        text = { Text(lang.displayName) },
+                        onClick = {
+                            onLanguageChange(lang)
+                            expanded = false
+                        },
+                    )
+                }
             }
         }
     }

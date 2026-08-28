@@ -56,8 +56,14 @@ data class MessageContent(
     // Batched acked frame ids for [CTL_RECEIPT] (additive; docs/ENCRYPTED_RECEIPTS_REACTIONS.md §2).
     // Single-ack ticks keep [ack]; a batch is one custody-escalated group tick covering every id.
     val acks: List<String>? = null,
+    @Deprecated("Replaced by messageType and semantic translation fields")
     val voiceTextLanguage: String? = null,
     val isAlert: Boolean? = null,
+    val messageType: Int? = null,
+    val sourceLanguage: String? = null,
+    val targetLanguage: String? = null,
+    val sourceText: String? = null,
+    val translatedText: String? = null,
 ) {
     @OptIn(ExperimentalSerializationApi::class)
     fun encode(): ByteArray = cryptoCbor.encodeToByteArray(this)
@@ -108,5 +114,9 @@ data class MessageContent(
 
         @OptIn(ExperimentalSerializationApi::class)
         fun decode(bytes: ByteArray): MessageContent? = runCatching { cryptoCbor.decodeFromByteArray<MessageContent>(bytes) }.getOrNull()
+
+        const val TYPE_NORMAL_TEXT = 0
+        const val TYPE_VOICE_NOTE = 1
+        const val TYPE_TRANSLATED_VOICE = 2
     }
 }

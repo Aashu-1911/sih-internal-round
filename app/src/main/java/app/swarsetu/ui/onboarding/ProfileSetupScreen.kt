@@ -34,7 +34,7 @@ import org.koin.compose.koinInject
 @Composable
 fun ProfileSetupScreen(
     onSetupComplete: () -> Unit,
-    settingsStore: SettingsStore = koinInject()
+    settingsStore: SettingsStore = koinInject(),
 ) {
     var name by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
@@ -42,23 +42,24 @@ fun ProfileSetupScreen(
     val scope = rememberCoroutineScope()
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
     ) {
         Text(
             text = "Set Up Your Profile",
             style = MaterialTheme.typography.headlineSmall,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "Enter your display name and choose your preferred language to receive translated Walkie-Talkie messages.",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(32.dp))
 
@@ -67,15 +68,15 @@ fun ProfileSetupScreen(
             onValueChange = { name = it },
             label = { Text("Display Name") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
 
         ExposedDropdownMenuBox(
             expanded = expanded,
             onExpandedChange = { expanded = !expanded },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             OutlinedTextField(
                 value = selectedLanguage.displayName,
@@ -84,11 +85,11 @@ fun ProfileSetupScreen(
                 label = { Text("Preferred Language") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                 colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                modifier = Modifier.menuAnchor().fillMaxWidth()
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
             )
             ExposedDropdownMenu(
                 expanded = expanded,
-                onDismissRequest = { expanded = false }
+                onDismissRequest = { expanded = false },
             ) {
                 SttLanguage.entries.forEach { lang ->
                     DropdownMenuItem(
@@ -96,7 +97,7 @@ fun ProfileSetupScreen(
                         onClick = {
                             selectedLanguage = lang
                             expanded = false
-                        }
+                        },
                     )
                 }
             }
@@ -114,7 +115,7 @@ fun ProfileSetupScreen(
                 }
             },
             enabled = name.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Complete Setup")
         }

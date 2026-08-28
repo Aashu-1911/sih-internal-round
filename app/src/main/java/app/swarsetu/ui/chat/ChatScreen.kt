@@ -77,12 +77,12 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -295,8 +295,6 @@ fun ChatScreen(
             viewModel.onInputCleared()
         }
     }
-<<<<<<< Updated upstream
-=======
 
     val sttPartialText by viewModel.sttPartialText.collectAsStateWithLifecycle()
     val sttLatestResult by viewModel.sttLatestResult.collectAsStateWithLifecycle()
@@ -309,7 +307,6 @@ fun ChatScreen(
     LaunchedEffect(sttLatestResult) {
         // Walkie-Talkie flow: Do not append STT text to the input field.
     }
->>>>>>> Stashed changes
     // Drain any payload handed in from the system share sheet (see ShareInbox): prefill the text draft
     // and stage the image through the normal attach() path, so it inherits ingest-time screening and
     // the "send anyway?" / hard-block handling. consume() is single-shot, so only the chat opened right
@@ -490,12 +487,7 @@ internal fun ChatScreenContent(
     // Voice notes. `voiceRecording` is non-null only while the mic is live, and replaces the whole input row
     // while it is; `voicePlayback` is the app-wide "which note is sounding" state each bubble matches its own
     // hash against. All defaulted so the previews and the content-level tests need not name them.
-<<<<<<< Updated upstream
-    isLiveTranslateEnabled: Boolean = false,
-    onToggleLiveTranslate: (Boolean) -> Unit = {},
-=======
     sttPartialText: String = "",
->>>>>>> Stashed changes
     voiceRecording: ChatViewModel.VoiceRecording? = null,
     voicePlayback: VoicePlayer.Playback? = null,
     onStartVoice: (locked: Boolean) -> Unit = {},
@@ -669,17 +661,17 @@ internal fun ChatScreenContent(
                 actions = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.padding(end = 8.dp),
                     ) {
                         IconButton(onClick = onSendAlert) {
                             Icon(
                                 Icons.Filled.Warning,
                                 contentDescription = "Send Emergency Alert",
-                                tint = MaterialTheme.colorScheme.error
+                                tint = MaterialTheme.colorScheme.error,
                             )
                         }
                     }
-                    
+
                     // The overflow lives on DM and group threads (the broadcast room has no actions).
                     // A DM offers Block/Unblock; a group offers Settings, which opens the same
                     // group-details screen as tapping the group avatar (the avatar tap stays too).
@@ -1196,9 +1188,12 @@ private fun MessageBubble(
                                     onLongClick = { showPicker = true },
                                 )
                             }
-                            if (row.body.isNotBlank()) Spacer(Modifier.height(4.dp))
+                            val hasText = (row.translatedText ?: row.sourceText ?: row.body).isNotBlank()
+                            if (hasText) Spacer(Modifier.height(4.dp))
                         }
-                        if (row.body.isNotBlank()) {
+                        
+                        val displayText = row.translatedText ?: row.sourceText ?: row.body
+                        if (displayText.isNotBlank()) {
                             if (row.moderationFlagged && !revealed) {
                                 Text(
                                     text = stringResource(R.string.moderation_text_hidden),
@@ -1229,7 +1224,7 @@ private fun MessageBubble(
                                 Text(
                                     text =
                                         annotateMessageBody(
-                                            row.body,
+                                            displayText,
                                             row.mentions,
                                             mentionStyle,
                                             linkStyle,
@@ -1237,15 +1232,15 @@ private fun MessageBubble(
                                         ),
                                     style = bodyStyle,
                                 )
-                                if (row.voiceTextLanguage != null) {
+                                if (row.messageType == app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE) {
                                     IconButton(
-                                        onClick = { onReplayTts(row.body, row.voiceTextLanguage) },
-                                        modifier = Modifier.padding(start = 4.dp).size(24.dp)
+                                        onClick = { onReplayTts(displayText, row.targetLanguage ?: row.sourceLanguage) },
+                                        modifier = Modifier.padding(start = 4.dp).size(24.dp),
                                     ) {
                                         Icon(
                                             Icons.Filled.PlayArrow,
                                             contentDescription = "Replay Translated Audio",
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = MaterialTheme.colorScheme.primary,
                                         )
                                     }
                                 }
@@ -2071,11 +2066,8 @@ private fun MessageInput(
     onCancelVoice: () -> Unit = {},
     onVoicePlay: (hash: String, key: String?) -> Unit = { _, _ -> },
     onVoiceSeek: (hash: String, positionMs: Int) -> Unit = { _, _ -> },
-<<<<<<< Updated upstream
-=======
     sttPartialText: String = "",
     isLiveTranslateEnabled: Boolean = false,
->>>>>>> Stashed changes
 ) {
     // Capture images committed by the keyboard (Gboard GIFs), drag-and-drop, or paste. The state-based
     // BasicTextField is required here: it advertises the accepted content MIME types to the IME, so the
@@ -2264,12 +2256,6 @@ private fun MessageInput(
                             locked = voiceRecording.locked,
                             onCancel = onCancelVoice,
                             modifier = Modifier.weight(1f),
-<<<<<<< Updated upstream
-=======
-                            liveText = sttPartialText.ifBlank {
-                                if (isLiveTranslateEnabled) "Sending..." else "Listening..."
-                            },
->>>>>>> Stashed changes
                         )
                     } else {
                         Box(

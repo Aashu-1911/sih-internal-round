@@ -8,8 +8,10 @@ package app.swarsetu.stt
  * throw [Exception], [Error], or [OutOfMemoryError]; the STT engine absorbs them behind [runCatching]
  * and maps them to these types so the application layer never sees raw JNI / OOM failures.
  */
-sealed class SttException(message: String, cause: Throwable? = null) : Exception(message, cause) {
-
+sealed class SttException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause) {
     /** The model asset could not be read from assets, or the flatbuffer is corrupt/incompatible. */
     class ModelLoadError(
         val modelPath: String,

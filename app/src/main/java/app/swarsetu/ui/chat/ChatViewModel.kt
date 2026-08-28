@@ -45,14 +45,15 @@ import app.swarsetu.mesh.protocol.Mention
 import app.swarsetu.mesh.protocol.ReplyRef
 import app.swarsetu.moderation.ImageScreeningService
 import app.swarsetu.notifications.Notifier
-import app.swarsetu.ui.voice.VoicePlayer
-import app.swarsetu.ui.voice.VoiceRecorder
 import app.swarsetu.stt.SttLanguage
 import app.swarsetu.stt.SttPipeline
 import app.swarsetu.tts.TtsLanguage
 import app.swarsetu.tts.TtsManager
 import app.swarsetu.tts.TtsPriority
 import app.swarsetu.tts.TtsRequest
+import app.swarsetu.ui.voice.VoicePlayer
+import app.swarsetu.ui.voice.VoiceRecorder
+import app.swarsetu.voice.toTtsLanguage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -60,6 +61,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,7 +71,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -126,7 +127,11 @@ data class ChatRow(
     // The message this row quotes (Signal-style reply), or null when it isn't a reply. Denormalized so the
     // quote renders even if the quoted original isn't in this thread. See [MessageEntity.replyRef].
     val replyTo: ReplyRef? = null,
-    val voiceTextLanguage: String? = null,
+    val messageType: Int = app.swarsetu.data.message.MessageEntity.TYPE_NORMAL_TEXT,
+    val sourceLanguage: String? = null,
+    val targetLanguage: String? = null,
+    val sourceText: String? = null,
+    val translatedText: String? = null,
 )
 
 /**
@@ -213,10 +218,7 @@ class ChatViewModel(
     private val ttsManager: TtsManager,
     private val voiceMessageAdapter: app.swarsetu.voice.VoiceMessageAdapter,
     private val voiceController: app.swarsetu.voice.VoiceConversationController,
-<<<<<<< Updated upstream
-=======
     private val sttPipeline: SttPipeline,
->>>>>>> Stashed changes
 ) : ViewModel() {
     private val isRoom = conversationId == Conversations.NEARBY
 
@@ -241,21 +243,6 @@ class ChatViewModel(
 
     val voicePlayback: StateFlow<VoicePlayer.Playback?> = voicePlayer.nowPlaying
 
-<<<<<<< Updated upstream
-    private val _isLiveTranslateEnabled = MutableStateFlow(false)
-    val isLiveTranslateEnabled: StateFlow<Boolean> = _isLiveTranslateEnabled.asStateFlow()
-
-    fun toggleLiveTranslate(enabled: Boolean) {
-        _isLiveTranslateEnabled.value = enabled
-        voiceController.isMeshEnabled = enabled
-    }
-
-    // Built lazily so a chat that never records never opens a recorder, and torn down in onCleared: the
-    // microphone is exclusive, and leaking it would block every other app until this process died.
-    private val recorder by lazy { VoiceRecorder(context, viewModelScope) }
-
-    // Ticks the recording UI. Cancelled by every path that ends a recording.
-=======
     val sttPartialText: StateFlow<String> = sttPipeline.partialText
     val sttLatestResult: StateFlow<app.swarsetu.stt.SttResult?> = sttPipeline.latestResult
 
@@ -264,7 +251,11 @@ class ChatViewModel(
             .map { code -> SttLanguage.fromCode(code) ?: SttLanguage.HINDI }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SttLanguage.HINDI)
 
->>>>>>> Stashed changes
+    // Built lazily so a chat that never records never opens a recorder, and torn down in onCleared: the
+    // microphone is exclusive, and leaking it would block every other app until this process died.
+    private val recorder by lazy { VoiceRecorder(context, viewModelScope) }
+
+    // Ticks the recording UI. Cancelled by every path that ends a recording.
     private var recordingTicker: Job? = null
 
     private val _events = MutableSharedFlow<Int>(extraBufferCapacity = 1)
@@ -430,7 +421,11 @@ class ChatViewModel(
                         mentions = MentionStore.decode(m.mentions),
                         reactions = tallies,
                         replyTo = m.replyRef(),
-                        voiceTextLanguage = m.voiceTextLanguage,
+                        messageType = m.messageType,
+                        sourceLanguage = m.sourceLanguage,
+                        targetLanguage = m.targetLanguage,
+                        sourceText = m.sourceText,
+                        translatedText = m.translatedText,
                     )
                 }
             val candidates =
@@ -523,12 +518,7 @@ class ChatViewModel(
             try {
                 val outgoingReply = normalizeSelfAuthor(replyTo)
                 val group = if (isRoom) null else groups.find(conversationId)
-<<<<<<< Updated upstream
-                val voiceLanguage = if (_isLiveTranslateEnabled.value) app.swarsetu.tts.TtsLanguage.HINDI.name else null
-=======
-                val voiceLanguage = selectedSttLanguage.value.toTtsLanguage()?.name
->>>>>>> Stashed changes
-                
+
                 val sent =
                     if (group != null) {
                         meshManager.sendChat(
@@ -538,17 +528,17 @@ class ChatViewModel(
                             recipientId = null,
                             group = group.toGroupInfo(),
                             replyTo = outgoingReply,
-                            voiceTextLanguage = voiceLanguage,
+                            messageType = MessageEntity.TYPE_NORMAL_TEXT,
                         )
                     } else {
                         val recipientId = if (isRoom) null else conversationId
                         meshManager.sendChat(
-                            text = trimmed, 
-                            attachment = attachment, 
-                            mentions = mentions, 
-                            recipientId = recipientId, 
+                            text = trimmed,
+                            attachment = attachment,
+                            mentions = mentions,
+                            recipientId = recipientId,
                             replyTo = outgoingReply,
-                            voiceTextLanguage = voiceLanguage,
+                            messageType = MessageEntity.TYPE_NORMAL_TEXT,
                         )
                     }
                 if (sent) {
@@ -564,19 +554,28 @@ class ChatViewModel(
         }
     }
 
-    fun replayTts(text: String, languageCode: String?) {
-        val ttsLang = try {
-            languageCode?.let { TtsLanguage.valueOf(it.uppercase()) } ?: TtsLanguage.HINDI
-        } catch (e: Exception) {
-            TtsLanguage.HINDI
-        }
+    fun replayTts(
+        text: String,
+        languageCode: String?,
+    ) {
+        val ttsLang =
+            try {
+                languageCode?.let { TtsLanguage.valueOf(it.uppercase()) } ?: TtsLanguage.HINDI
+            } catch (e: Exception) {
+                TtsLanguage.HINDI
+            }
         viewModelScope.launch {
-            ttsManager.speak(TtsRequest(
-                requestId = java.util.UUID.randomUUID().toString(),
-                text = text,
-                language = ttsLang,
-                priority = TtsPriority.NORMAL
-            ))
+            ttsManager.speak(
+                TtsRequest(
+                    requestId =
+                        java.util.UUID
+                            .randomUUID()
+                            .toString(),
+                    text = text,
+                    language = ttsLang,
+                    priority = TtsPriority.NORMAL,
+                ),
+            )
         }
     }
 
@@ -593,12 +592,14 @@ class ChatViewModel(
         _isSending.value = true
         viewModelScope.launch {
             try {
-                val sent = meshManager.sendChat(
-                    text = "EMERGENCY ALERT: Please check on me.",
-                    recipientId = null,
-                    isAlert = true,
-                    voiceTextLanguage = selectedSttLanguage.value.toTtsLanguage()?.name
-                )
+                val sent =
+                    meshManager.sendChat(
+                        text = "EMERGENCY ALERT: Please check on me.",
+                        recipientId = null,
+                        isAlert = true,
+                        messageType = app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE,
+                        sourceLanguage = selectedSttLanguage.value.toTtsLanguage()?.name,
+                    )
                 if (!sent) {
                     android.util.Log.w("ChatViewModel", "ALERT_BROADCAST_FAILED")
                 } else {
@@ -691,35 +692,20 @@ class ChatViewModel(
     }
 
     fun startVoiceRecording(locked: Boolean = false): Boolean {
-<<<<<<< Updated upstream
-        if (_voiceRecording.value != null) return false
-        
-        if (_isLiveTranslateEnabled.value) {
-            // Live translate mode: trigger the STT pipeline for mesh voice translation.
-            viewModelScope.launch {
-                val groupInfo = groups.find(conversationId)?.toGroupInfo()
-                voiceMessageAdapter.startVoiceMessage(
-                    language = app.swarsetu.stt.SttLanguage.HINDI, // Default to Hindi
-                    recipientId = if (!isRoom && groupInfo == null) conversationId else null,
-                    group = groupInfo,
-                    replyTo = null,
-                    isAlert = false
-                )
-            }
-        } else {
-            // Audio recording mode
-            if (!recorder.start()) {
-                _events.tryEmit(R.string.chat_voice_record_failed)
-                return false
-            }
-=======
         android.util.Log.d("ChatViewModel", "VOICE_START_REQUESTED")
         if (_voiceRecording.value != null || sttPipeline.state.value != app.swarsetu.stt.SttPipeline.PipelineState.IDLE) {
             android.util.Log.w("ChatViewModel", "VOICE_START_REJECTED: Pipeline not IDLE")
             return false
         }
         val language = selectedSttLanguage.value
-        
+
+        // Enable mesh transmission
+        voiceController.isMeshEnabled = true
+
+        // Set routing context SYNCHRONOUSLY before startCapture so the adapter
+        // always has context when the STT result arrives.
+        // Note: We launch immediately and the STT result can't arrive until audio
+        // is captured (minimum ~500ms), so this coroutine is guaranteed to run first.
         viewModelScope.launch {
             val group = if (isRoom) null else groups.find(conversationId)
             voiceMessageAdapter.startVoiceMessage(
@@ -728,38 +714,33 @@ class ChatViewModel(
                 group = group?.toGroupInfo(),
             )
         }
-        
+
         if (sttPipeline.canCapture) {
             android.util.Log.d("ChatViewModel", "VOICE_START_ACCEPTED (STT)")
             sttPipeline.startCapture(language)
         } else {
             android.util.Log.w("ChatViewModel", "VOICE_START_REJECTED (STT Permission)")
+            voiceMessageAdapter.stopVoiceMessage()
+            voiceController.isMeshEnabled = false
             _events.tryEmit(R.string.chat_voice_record_failed)
             return false
->>>>>>> Stashed changes
         }
 
         _voiceRecording.value = VoiceRecording(elapsedMs = 0L, amplitude = 0f, locked = locked)
         recordingTicker?.cancel()
         recordingTicker =
             viewModelScope.launch {
+                val startTime = System.currentTimeMillis()
                 while (true) {
                     delay(VOICE_TICK_MS)
-<<<<<<< Updated upstream
-                    val elapsed = recorder.elapsedMs()
-                    // Stop cleanly at the cap rather than letting the recorder run on: the note is still
-                    // staged, so a user who talks past five minutes keeps what they said instead of losing it.
-                    if (elapsed >= VoiceRecorder.MAX_DURATION_MS) {
-=======
                     val elapsed = System.currentTimeMillis() - startTime
                     val amp = sttPipeline.amplitude.value
                     if (elapsed >= 600_000L) {
->>>>>>> Stashed changes
                         stopVoiceRecordingAndStage()
                         return@launch
                     }
                     _voiceRecording.value =
-                        _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = recorder.amplitude())
+                        _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = amp)
                 }
             }
         return true
@@ -769,55 +750,29 @@ class ChatViewModel(
         _voiceRecording.value = _voiceRecording.value?.copy(locked = true)
     }
 
-<<<<<<< Updated upstream
-    /**
-     * Ends the recording and stages it for review, exactly as a picked photo is staged — so the user hears
-     * it back before sending, and can still add text or a reply quote to it.
-     *
-     * A recording too short to have said anything is discarded rather than staged: releasing the button by
-     * accident is common, and an unsendable 0.2 s blip in the composer is worse than nothing happening.
-     */
-    fun stopVoiceRecordingAndStage() {
-=======
     fun stopVoiceRecordingAndStage() {
         android.util.Log.d("ChatViewModel", "VOICE_STOP_REQUESTED")
->>>>>>> Stashed changes
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
-        
-<<<<<<< Updated upstream
-        if (_isLiveTranslateEnabled.value) {
-            voiceMessageAdapter.stopVoiceMessage()
-            _voiceRecording.value = null
-            return
-        }
 
-=======
         sttPipeline.stopCapture()
         android.util.Log.d("ChatViewModel", "VOICE_MESSAGE_CREATED (STT Text path invoked)")
-        
->>>>>>> Stashed changes
+
         _voiceRecording.value = null
         android.util.Log.d("ChatViewModel", "VOICE_STATE_IDLE")
+        // isMeshEnabled stays true until VoiceMessageAdapter clears context after sending
     }
 
     fun cancelVoiceRecording() {
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
-<<<<<<< Updated upstream
-        if (_isLiveTranslateEnabled.value) {
-            voiceMessageAdapter.stopVoiceMessage()
-        } else {
-            recorder.cancel()
-        }
-=======
         sttPipeline.cancelCapture()
         voicePlayer.stop()
         voiceMessageAdapter.stopVoiceMessage()
-        
->>>>>>> Stashed changes
+        voiceController.isMeshEnabled = false
+
         _voiceRecording.value = null
         android.util.Log.d("ChatViewModel", "VOICE_STATE_IDLE (Cancelled)")
     }
@@ -929,6 +884,8 @@ class ChatViewModel(
         recordingTicker?.cancel()
         sttPipeline.cancelCapture()
         voicePlayer.stop()
+        voiceMessageAdapter.stopVoiceMessage()
+        voiceController.isMeshEnabled = false
         super.onCleared()
     }
 

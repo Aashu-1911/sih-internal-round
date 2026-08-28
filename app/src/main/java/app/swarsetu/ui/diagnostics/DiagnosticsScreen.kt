@@ -77,6 +77,7 @@ fun DiagnosticsScreen(
     onBack: () -> Unit,
     onOpenCrashLog: () -> Unit,
     onOpenTtsTest: () -> Unit,
+    onOpenLanguageInit: () -> Unit = {},
     viewModel: DiagnosticsViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -116,6 +117,7 @@ fun DiagnosticsScreen(
         onScan = viewModel::rescan,
         onOpenCrashLog = onOpenCrashLog,
         onOpenTtsTest = onOpenTtsTest,
+        onOpenLanguageInit = onOpenLanguageInit,
     )
 }
 
@@ -132,6 +134,7 @@ internal fun DiagnosticsScreenContent(
     onScan: () -> Unit,
     onOpenCrashLog: () -> Unit,
     onOpenTtsTest: () -> Unit,
+    onOpenLanguageInit: () -> Unit = {},
 ) {
     Scaffold(
         modifier = Modifier.testTag("screen_diagnostics"),
@@ -173,13 +176,24 @@ internal fun DiagnosticsScreenContent(
                     onScan = onScan,
                 )
             }
-            
+
             item {
-                Button(
-                    onClick = onOpenTtsTest,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    Text("TTS Developer Test (Phase 1)")
+                    Button(
+                        onClick = onOpenTtsTest,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("TTS Developer Test")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = onOpenLanguageInit,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Language Packs")
+                    }
                 }
             }
 

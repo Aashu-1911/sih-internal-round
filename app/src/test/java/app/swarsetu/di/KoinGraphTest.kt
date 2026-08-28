@@ -15,13 +15,13 @@ import org.koin.test.KoinTest
 import org.koin.test.get
 
 class KoinGraphTest : KoinTest {
-
     @Before
     fun setUp() {
         val mockAudioManager = mockk<android.media.AudioManager>(relaxed = true)
-        val mockContext = mockk<Context>(relaxed = true) {
-            io.mockk.every { getSystemService(Context.AUDIO_SERVICE) } returns mockAudioManager
-        }
+        val mockContext =
+            mockk<Context>(relaxed = true) {
+                io.mockk.every { getSystemService(Context.AUDIO_SERVICE) } returns mockAudioManager
+            }
         startKoin {
             androidContext(mockContext)
             modules(
@@ -31,7 +31,7 @@ class KoinGraphTest : KoinTest {
                 sttModule,
                 ttsModule,
                 uiModule,
-                voiceModule
+                voiceModule,
             )
         }
     }

@@ -9,6 +9,7 @@ import app.swarsetu.tts.TtsManager
 import app.swarsetu.tts.TtsPriority
 import app.swarsetu.tts.TtsRequest
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -24,40 +25,52 @@ class VoiceMessageReceiver(
     private val translatorEngine: TranslatorEngine,
     private val messageRepository: MessageRepository,
 ) {
-    fun onVoiceMessageReceived(entity: MessageEntity) {
+    fun onVoiceMessageReceived(entity: MessageEntity): Job {
         val t4 = System.currentTimeMillis()
-        val originalLanguageString = entity.voiceTextLanguage ?: return
-        val originalLanguage = parseLanguage(originalLanguageString) ?: return
+        
+        if (entity.messageType != MessageEntity.TYPE_TRANSLATED_VOICE) {
+            return scope.launch { }
+        }
 
-        scope.launch {
+        return scope.launch {
             // Determine the receiving user's preferred language.
-            val preferredLanguageString = settingsStore.sttLanguageCode.first().uppercase()
-            val preferredLanguage = parseLanguage(preferredLanguageString) ?: originalLanguage
+            val preferredLanguageString = settingsStore.sttLanguageCode.first().lowercase()
+            
+            // The message already comes with translatedText and targetLanguage if it was translated by the sender (DM).
+            // For groups, it might only have sourceText and sourceLanguage.
+            var textToSpeak = entity.translatedText ?: entity.sourceText ?: entity.body
+            var languageToSpeak = entity.targetLanguage ?: entity.sourceLanguage ?: "en"
 
-            // If the incoming language differs from our preferred language, translate it.
-            val (finalText, finalLanguage) = if (originalLanguage != preferredLanguage) {
+            // If the message hasn't been translated to our language yet (e.g. group broadcast), translate it now.
+            if (languageToSpeak != preferredLanguageString && entity.sourceText != null && entity.sourceLanguage != null) {
                 val translated = translatorEngine.translate(
-                    text = entity.body,
-                    sourceLang = originalLanguageString.lowercase(),
-                    targetLang = preferredLanguageString.lowercase()
+                    text = entity.sourceText,
+                    sourceLang = entity.sourceLanguage.lowercase(),
+                    targetLang = preferredLanguageString,
                 )
-                Pair(translated, preferredLanguage)
-            } else {
-                Pair(entity.body, originalLanguage)
+                if (translated != entity.sourceText) {
+                    textToSpeak = translated
+                    languageToSpeak = preferredLanguageString
+                    
+                    // Update entity with translated text for local display
+                    val updatedEntity = entity.copy(
+                        translatedText = textToSpeak,
+                        targetLanguage = languageToSpeak,
+                    )
+                    messageRepository.save(updatedEntity)
+                }
             }
 
-            // Update the message in the database with the translated text so the UI reflects it
-            if (finalText != entity.body) {
-                val updatedEntity = entity.copy(body = finalText)
-                messageRepository.save(updatedEntity)
-            }
+            val finalLanguage = parseLanguage(languageToSpeak)
+            android.util.Log.d("VoiceMessageReceiver", "TTS playing message ${entity.id} in $finalLanguage: \"$textToSpeak\"")
 
-            val request = TtsRequest(
-                requestId = entity.id,
-                text = finalText,
-                language = finalLanguage,
-                priority = if (entity.isAlert) TtsPriority.ALERT else TtsPriority.NORMAL,
-            )
+            val request =
+                TtsRequest(
+                    requestId = entity.id,
+                    text = textToSpeak,
+                    language = finalLanguage,
+                    priority = if (entity.isAlert) TtsPriority.ALERT else TtsPriority.NORMAL,
+                )
 
             val t5 = System.currentTimeMillis()
             voiceController.reportInboundMessageMetrics(entity.id, t4, t5)
@@ -66,11 +79,7 @@ class VoiceMessageReceiver(
         }
     }
 
-    private fun parseLanguage(languageName: String): TtsLanguage? {
-        return try {
-            TtsLanguage.valueOf(languageName.uppercase())
-        } catch (e: IllegalArgumentException) {
-            null
-        }
+    private fun parseLanguage(languageName: String): TtsLanguage {
+        return TtsLanguage.fromLanguageCode(languageName) ?: TtsLanguage.HINDI
     }
 }

@@ -13,35 +13,30 @@ data class SttConfig(
      * triggers a model swap.
      */
     val language: SttLanguage = SttLanguage.ENGLISH,
-
     /** PCM sample rate in Hz. Must match the model's expected rate (16 kHz for all bundled models). */
     val sampleRate: Int = SttLanguage.SAMPLE_RATE,
-
     /**
      * Whether to emit partial (intermediate) transcription results as audio arrives. Useful for live
      * preview but costs slightly more CPU. Set to false for batch transcription of already-recorded
      * audio.
      */
     val enablePartialResults: Boolean = true,
-
     /**
      * Maximum number of partial results before the engine auto-finalizes. Prevents unbounded partial
      * output on very long recordings. 0 means no limit.
      */
     val maxPartialResults: Int = 0,
-
     /**
      * Silence duration in milliseconds after which the engine auto-finalizes the current utterance.
      * Only meaningful when [enablePartialResults] is true. 0 disables auto-finalization.
      */
     val silenceTimeoutMs: Long = 2_000L,
-
     /**
      * Maximum audio duration in milliseconds for a single transcription call. Protects against
-     * runaway inference on very long inputs. 0 means no limit.
+     * runaway inference on very long inputs. 0 means no limit. Default is 5 minutes, matching
+     * VoiceRecorder.MAX_DURATION_MS.
      */
-    val maxAudioDurationMs: Long = 5 * 60 * 1_000L, // 5 minutes, matching VoiceRecorder.MAX_DURATION_MS
-
+    val maxAudioDurationMs: Long = 5 * 60 * 1_000L,
     /**
      * Whether the engine should attempt to detect the language automatically from the audio content.
      * When false, [language] is used exclusively. Only meaningful for multilingual models.

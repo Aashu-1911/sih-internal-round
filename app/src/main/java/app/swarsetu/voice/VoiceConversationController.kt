@@ -25,7 +25,7 @@ enum class VoiceState {
     RECOGNIZING,
     FINALIZING,
     SPEAKING,
-    ERROR
+    ERROR,
 }
 
 data class VoicePipelineMetrics(
@@ -38,7 +38,7 @@ data class VoicePipelineMetrics(
     val t6FirstTtsAudio: Long = 0,
     val t7PlaybackStarted: Long = 0,
     val payloadSizeBytes: Int = 0,
-    val messageId: String? = null
+    val messageId: String? = null,
 )
 
 /**
@@ -51,21 +51,37 @@ interface VoiceConversationController {
     var isMeshEnabled: Boolean
 
     fun startListening(language: SttLanguage)
+
     fun stopListening()
+
     fun stopSpeaking()
+
     fun shutdown()
 
-    fun reportSttLatency(t0: Long, t1: Long)
-    fun reportOutboundMessageMetrics(messageId: String, payloadSizeBytes: Int, t2: Long, t3: Long)
-    fun reportInboundMessageMetrics(messageId: String, t4: Long, t5: Long)
+    fun reportSttLatency(
+        t0: Long,
+        t1: Long,
+    )
+
+    fun reportOutboundMessageMetrics(
+        messageId: String,
+        payloadSizeBytes: Int,
+        t2: Long,
+        t3: Long,
+    )
+
+    fun reportInboundMessageMetrics(
+        messageId: String,
+        t4: Long,
+        t5: Long,
+    )
 }
 
 class DefaultVoiceConversationController(
     private val scope: CoroutineScope,
     private val sttPipeline: SttPipeline,
-    private val ttsManager: TtsManager
+    private val ttsManager: TtsManager,
 ) : VoiceConversationController {
-
     private val _state = MutableStateFlow(VoiceState.IDLE)
     override val state: StateFlow<VoiceState> = _state.asStateFlow()
 
@@ -92,12 +108,13 @@ class DefaultVoiceConversationController(
                 val currentState = _state.value
                 // Only update from STT if we are not currently SPEAKING
                 if (currentState != VoiceState.SPEAKING) {
-                    _state.value = when (sttState) {
-                        SttPipeline.PipelineState.IDLE -> VoiceState.IDLE
-                        SttPipeline.PipelineState.CAPTURING -> VoiceState.LISTENING
-                        SttPipeline.PipelineState.PROCESSING -> VoiceState.RECOGNIZING
-                        SttPipeline.PipelineState.COMPLETE -> VoiceState.FINALIZING
-                    }
+                    _state.value =
+                        when (sttState) {
+                            SttPipeline.PipelineState.IDLE -> VoiceState.IDLE
+                            SttPipeline.PipelineState.CAPTURING -> VoiceState.LISTENING
+                            SttPipeline.PipelineState.PROCESSING -> VoiceState.RECOGNIZING
+                            SttPipeline.PipelineState.COMPLETE -> VoiceState.FINALIZING
+                        }
                 }
             }
         }
@@ -114,7 +131,7 @@ class DefaultVoiceConversationController(
 
     private suspend fun handleSttResult(result: SttResult) {
         if (!result.isUsable) return
-        
+
         // Deduplication: prevent speaking the exact same result object instance
         if (result === lastSpokenResult) return
         lastSpokenResult = result
@@ -126,14 +143,15 @@ class DefaultVoiceConversationController(
         }
 
         _state.value = VoiceState.SPEAKING
-        
-        val request = TtsRequest(
-            requestId = UUID.randomUUID().toString(),
-            text = result.text,
-            language = ttsLang,
-            priority = TtsPriority.NORMAL
-        )
-        
+
+        val request =
+            TtsRequest(
+                requestId = UUID.randomUUID().toString(),
+                text = result.text,
+                language = ttsLang,
+                priority = TtsPriority.NORMAL,
+            )
+
         ttsManager.speak(request)
         // Transition back to IDLE after queueing (a more robust state sync would listen to TTS engine callbacks)
         _state.value = VoiceState.IDLE
@@ -161,33 +179,49 @@ class DefaultVoiceConversationController(
         stopSpeaking()
     }
 
-    override fun reportSttLatency(t0: Long, t1: Long) {
+    override fun reportSttLatency(
+        t0: Long,
+        t1: Long,
+    ) {
         _voiceMetrics.update { it.copy(t0SpeechDetected = t0, t1SttFinal = t1) }
     }
 
-    override fun reportOutboundMessageMetrics(messageId: String, payloadSizeBytes: Int, t2: Long, t3: Long) {
-        _voiceMetrics.update { it.copy(
-            messageId = messageId,
-            payloadSizeBytes = payloadSizeBytes,
-            t2MessageConstructed = t2,
-            t3MessageSendRequested = t3
-        )}
+    override fun reportOutboundMessageMetrics(
+        messageId: String,
+        payloadSizeBytes: Int,
+        t2: Long,
+        t3: Long,
+    ) {
+        _voiceMetrics.update {
+            it.copy(
+                messageId = messageId,
+                payloadSizeBytes = payloadSizeBytes,
+                t2MessageConstructed = t2,
+                t3MessageSendRequested = t3,
+            )
+        }
     }
 
-    override fun reportInboundMessageMetrics(messageId: String, t4: Long, t5: Long) {
-        _voiceMetrics.update { it.copy(
-            messageId = messageId,
-            t4RemoteMessageReceived = t4,
-            t5TtsRequest = t5
-        )}
+    override fun reportInboundMessageMetrics(
+        messageId: String,
+        t4: Long,
+        t5: Long,
+    ) {
+        _voiceMetrics.update {
+            it.copy(
+                messageId = messageId,
+                t4RemoteMessageReceived = t4,
+                t5TtsRequest = t5,
+            )
+        }
     }
 }
 
 /**
  * Maps STT languages to their corresponding TTS language definitions.
  */
-fun SttLanguage.toTtsLanguage(): TtsLanguage? {
-    return when (this) {
+fun SttLanguage.toTtsLanguage(): TtsLanguage? =
+    when (this) {
         SttLanguage.HINDI -> TtsLanguage.HINDI
         SttLanguage.GUJARATI -> TtsLanguage.GUJARATI
         SttLanguage.MARATHI -> TtsLanguage.MARATHI
@@ -199,4 +233,3 @@ fun SttLanguage.toTtsLanguage(): TtsLanguage? {
         SttLanguage.BENGALI -> TtsLanguage.BENGALI
         SttLanguage.ENGLISH -> TtsLanguage.ENGLISH
     }
-}

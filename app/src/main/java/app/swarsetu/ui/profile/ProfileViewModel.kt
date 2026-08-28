@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+import app.swarsetu.stt.SttLanguage
+
 /** The Internet-relay plane, as the Profile row summarises it before handing off to its own screen. */
 data class RelaySummary(
     val enabled: Boolean = false,
@@ -52,6 +54,17 @@ class ProfileViewModel(
      * (and the profile broadcast stays "unset") until the user actually types one.
      */
     val alias = MutableStateFlow("")
+
+    val preferredLanguage: StateFlow<SttLanguage> =
+        settings.sttLanguageCode
+            .map { SttLanguage.fromCode(it) ?: SttLanguage.HINDI }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SttLanguage.HINDI)
+
+    fun setPreferredLanguage(language: SttLanguage) {
+        viewModelScope.launch {
+            settings.setSttLanguageCode(language.code)
+        }
+    }
 
     // Editable text is held locally and updated synchronously on each keystroke; nothing is persisted
     // until the user taps Save (see [save]). Binding the field directly to the DataStore flow would

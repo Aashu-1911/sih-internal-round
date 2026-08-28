@@ -23,6 +23,7 @@ class SettingsStore(
     val status: Flow<String> = dataStore.data.map { it[KEY_STATUS] ?: "" }
     val isLanguageInitComplete: Flow<Boolean> = dataStore.data.map { it[KEY_LANGUAGE_INIT_COMPLETE] ?: false }
     val isProfileSetupComplete: Flow<Boolean> = dataStore.data.map { it[KEY_PROFILE_SETUP_COMPLETE] ?: false }
+    val sttLanguageCode: Flow<String> = dataStore.data.map { it[KEY_STT_LANGUAGE] ?: "hi" }
 
     /** Bumped whenever the avatar image changes, so profile re-broadcasts can be triggered. */
     val avatarUpdatedAt: Flow<Long> = dataStore.data.map { it[KEY_AVATAR_UPDATED_AT] ?: 0L }
@@ -284,14 +285,14 @@ class SettingsStore(
 
     suspend fun removeSpoolUrl(url: String) = dataStore.edit { it[KEY_SPOOL_URLS] = (it[KEY_SPOOL_URLS] ?: emptySet()) - url }
 
-<<<<<<< Updated upstream
-=======
     suspend fun setLanguageInitComplete(value: Boolean) = dataStore.edit { it[KEY_LANGUAGE_INIT_COMPLETE] = value }
+
     suspend fun setProfileSetupComplete(value: Boolean) = dataStore.edit { it[KEY_PROFILE_SETUP_COMPLETE] = value }
 
     suspend fun setSttLanguage(code: String) = dataStore.edit { it[KEY_STT_LANGUAGE] = code }
 
->>>>>>> Stashed changes
+    suspend fun setSttLanguageCode(code: String) = setSttLanguage(code)
+
     /** Dynamic per-conversation read-watermark key, e.g. "last_read_nearby" / "last_read_<nodeId>". */
     private fun lastReadKey(conversationId: String) = longPreferencesKey(LAST_READ_PREFIX + conversationId)
 
@@ -316,11 +317,8 @@ class SettingsStore(
         val KEY_SPOOL_URLS = stringSetPreferencesKey("spool_urls")
         val KEY_SPOOL_SEEDED = booleanPreferencesKey("spool_defaults_seeded")
         val KEY_SPOOL_CONSENTED = booleanPreferencesKey("spool_consented")
-<<<<<<< Updated upstream
-=======
         val KEY_LANGUAGE_INIT_COMPLETE = booleanPreferencesKey("language_init_complete")
         val KEY_PROFILE_SETUP_COMPLETE = booleanPreferencesKey("profile_setup_complete")
         val KEY_STT_LANGUAGE = stringPreferencesKey("stt_language")
->>>>>>> Stashed changes
     }
 }

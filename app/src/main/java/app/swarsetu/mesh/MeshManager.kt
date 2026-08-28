@@ -513,13 +513,19 @@ class MeshManager(
         recipientId: String?,
         group: GroupInfo?,
         replyTo: ReplyRef?,
-        voiceTextLanguage: String?,
+        messageType: Int,
+        sourceLanguage: String?,
+        targetLanguage: String?,
+        sourceText: String?,
+        translatedText: String?,
         isAlert: Boolean,
         messageId: String?,
     ): Boolean {
         if (isTextFlagged(text, "outgoing", isRoom = recipientId == null && group == null)) return false
         val me = identity.nodeId()
-        val id = messageId ?: app.swarsetu.mesh.protocol.FrameId.new()
+        val id =
+            messageId ?: app.swarsetu.mesh.protocol.FrameId
+                .new()
         val sentAt = clock()
         val conversationId = Conversations.idFor(me, recipientId, me, group?.id)
 
@@ -541,7 +547,11 @@ class MeshManager(
                     // in the room (ADR 034), so in practice this is always null here.
                     voiceDurationMs = attachment?.voice?.durationMs,
                     voicePeaks = attachment?.voice?.peaks,
-                    voiceTextLanguage = voiceTextLanguage,
+                    messageType = messageType,
+                    sourceLanguage = sourceLanguage,
+                    targetLanguage = targetLanguage,
+                    sourceText = sourceText,
+                    translatedText = translatedText,
                     isAlert = isAlert,
                 ).withReply(replyTo),
             )
@@ -552,7 +562,11 @@ class MeshManager(
                     attachmentHash = attachment?.hash,
                     attachmentMime = attachment?.mime,
                     replyTo = replyTo,
-                    voiceTextLanguage = voiceTextLanguage,
+                    messageType = messageType,
+                    sourceLanguage = sourceLanguage,
+                    targetLanguage = targetLanguage,
+                    sourceText = sourceText,
+                    translatedText = translatedText,
                     isAlert = if (isAlert) true else null,
                 )
             originateSigned(chatEnvelope(id, me, sentAt, recipientId = null, group = null, content))
@@ -570,7 +584,11 @@ class MeshManager(
                 attachmentMime = attachment?.mime,
                 attachmentKey = sealedAttachment?.key,
                 replyTo = replyTo,
-                voiceTextLanguage = voiceTextLanguage,
+                messageType = messageType,
+                sourceLanguage = sourceLanguage,
+                targetLanguage = targetLanguage,
+                sourceText = sourceText,
+                translatedText = translatedText,
                 isAlert = if (isAlert) true else null,
             )
         val envelope = sealEnvelopeFor(id, me, sentAt, recipientId, group, content)
@@ -593,7 +611,11 @@ class MeshManager(
                 voiceDurationMs = attachment?.voice?.durationMs,
                 voicePeaks = attachment?.voice?.peaks,
                 pendingKey = envelope == null && group == null,
-                voiceTextLanguage = voiceTextLanguage,
+                messageType = messageType,
+                sourceLanguage = sourceLanguage,
+                targetLanguage = targetLanguage,
+                sourceText = sourceText,
+                translatedText = translatedText,
                 isAlert = isAlert,
             ).withReply(replyTo),
         )
@@ -1803,6 +1825,7 @@ class MeshManager(
                 capabilities = Protocol.LOCAL_CAPABILITIES,
                 prekey = PrekeyInfo(id = spk.id, pub = spk.pub, sig = spk.sig),
                 version = version,
+                preferredLanguage = settings.sttLanguageCode.first(),
             )
         return RelayEnvelope(
             type = FrameType.PROFILE,

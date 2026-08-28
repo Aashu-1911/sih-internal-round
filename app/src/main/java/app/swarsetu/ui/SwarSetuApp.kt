@@ -25,6 +25,7 @@ import app.swarsetu.data.message.Conversations
 import app.swarsetu.mesh.MeshController
 import app.swarsetu.mesh.MeshService
 import app.swarsetu.review.ReviewPrompter
+import app.swarsetu.tts.ui.TtsTestScreen
 import app.swarsetu.ui.blocked.BlockedUsersScreen
 import app.swarsetu.ui.chat.ChatScreen
 import app.swarsetu.ui.chat.MessageDetailsScreen
@@ -34,8 +35,8 @@ import app.swarsetu.ui.diagnostics.CrashLogScreen
 import app.swarsetu.ui.diagnostics.DiagnosticsScreen
 import app.swarsetu.ui.donate.DonateScreen
 import app.swarsetu.ui.group.GroupDetailsScreen
-import app.swarsetu.ui.onboarding.OnboardingScreen
 import app.swarsetu.ui.onboarding.LanguageInitScreen
+import app.swarsetu.ui.onboarding.OnboardingScreen
 import app.swarsetu.ui.onboarding.ProfileSetupScreen
 import app.swarsetu.ui.profile.ProfileDetailsScreen
 import app.swarsetu.ui.profile.ProfileScreen
@@ -44,7 +45,6 @@ import app.swarsetu.ui.requests.MessageRequestsScreen
 import app.swarsetu.ui.review.RateReviewDialog
 import app.swarsetu.ui.review.ReviewPromptInbox
 import app.swarsetu.ui.share.ShareInbox
-import app.swarsetu.tts.ui.TtsTestScreen
 import app.swarsetu.ui.share.ShareTargetScreen
 import app.swarsetu.ui.verify.VerifyContactScreen
 import org.koin.compose.koinInject
@@ -105,15 +105,20 @@ fun SwarSetuApp(startRoute: String? = null) {
     val settingsStore = koinInject<app.swarsetu.data.settings.SettingsStore>()
     val isLanguageInitComplete by settingsStore.isLanguageInitComplete.collectAsStateWithLifecycle(initialValue = false)
     val isProfileSetupComplete by settingsStore.isProfileSetupComplete.collectAsStateWithLifecycle(initialValue = false)
-    
+
     // Demo-screenshot mode skips the permission gate (and an optional [startRoute] jumps straight to a
     // screen for deterministic capture); otherwise gate on permissions as usual.
     val start =
         startRoute
-            ?: if (onboarded && isLanguageInitComplete && isProfileSetupComplete) Routes.CHAT_LIST
-            else if (onboarded && isLanguageInitComplete) Routes.PROFILE_SETUP
-            else if (onboarded) Routes.LANGUAGE_INIT 
-            else Routes.ONBOARDING
+            ?: if (onboarded && isLanguageInitComplete && isProfileSetupComplete) {
+                Routes.CHAT_LIST
+            } else if (onboarded && isLanguageInitComplete) {
+                Routes.PROFILE_SETUP
+            } else if (onboarded) {
+                Routes.LANGUAGE_INIT
+            } else {
+                Routes.ONBOARDING
+            }
 
     // Start the mesh service whenever the user is past onboarding (guard kept broad on purpose). Demo
     // builds never start it — there is no real mesh and the seeded data needs no transport.
@@ -187,7 +192,7 @@ fun SwarSetuApp(startRoute: String? = null) {
             LanguageInitScreen(
                 onInitializationComplete = {
                     navController.navigate(Routes.PROFILE_SETUP) { popUpTo(0) }
-                }
+                },
             )
         }
 
@@ -195,7 +200,7 @@ fun SwarSetuApp(startRoute: String? = null) {
             ProfileSetupScreen(
                 onSetupComplete = {
                     navController.navigate(Routes.CHAT_LIST) { popUpTo(0) }
-                }
+                },
             )
         }
         composable(Routes.CHAT_LIST) {
@@ -331,7 +336,8 @@ fun SwarSetuApp(startRoute: String? = null) {
             DiagnosticsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenCrashLog = { navController.navigate(Routes.CRASH_LOG) },
-                onOpenTtsTest = { navController.navigate(Routes.TTS_TEST) }
+                onOpenTtsTest = { navController.navigate(Routes.TTS_TEST) },
+                onOpenLanguageInit = { navController.navigate(Routes.LANGUAGE_INIT) },
             )
         }
         composable(Routes.CRASH_LOG) {

@@ -2,13 +2,13 @@ package app.swarsetu.tts.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.swarsetu.stt.SttLanguage
 import app.swarsetu.tts.TtsLanguage
 import app.swarsetu.tts.TtsLanguageCapability
 import app.swarsetu.tts.TtsManager
 import app.swarsetu.tts.TtsPriority
 import app.swarsetu.tts.TtsRequest
 import app.swarsetu.tts.metrics.TtsMetricsCollector
-import app.swarsetu.stt.SttLanguage
 import app.swarsetu.voice.VoiceConversationController
 import app.swarsetu.voice.VoiceMessageAdapter
 import app.swarsetu.voice.toTtsLanguage
@@ -23,16 +23,15 @@ data class TtsTestUiState(
     val isInitialized: Boolean = false,
     val selectedLanguage: TtsLanguage = TtsLanguage.HINDI,
     val capability: TtsLanguageCapability? = null,
-    val testText: String = ""
+    val testText: String = "",
 )
 
 class TtsTestViewModel(
     private val ttsManager: TtsManager,
     val metricsCollector: TtsMetricsCollector,
     val voiceController: VoiceConversationController,
-    private val voiceMessageAdapter: VoiceMessageAdapter
+    private val voiceMessageAdapter: VoiceMessageAdapter,
 ) : ViewModel() {
-
     private val _uiState = MutableStateFlow(TtsTestUiState())
     val uiState: StateFlow<TtsTestUiState> = _uiState.asStateFlow()
 
@@ -56,24 +55,26 @@ class TtsTestViewModel(
 
     fun speakNormal(text: String) {
         viewModelScope.launch {
-            val request = TtsRequest(
-                requestId = UUID.randomUUID().toString(),
-                text = text,
-                language = _uiState.value.selectedLanguage,
-                priority = TtsPriority.NORMAL
-            )
+            val request =
+                TtsRequest(
+                    requestId = UUID.randomUUID().toString(),
+                    text = text,
+                    language = _uiState.value.selectedLanguage,
+                    priority = TtsPriority.NORMAL,
+                )
             ttsManager.speak(request)
         }
     }
 
     fun speakAlert(text: String) {
         viewModelScope.launch {
-            val request = TtsRequest(
-                requestId = UUID.randomUUID().toString(),
-                text = text,
-                language = _uiState.value.selectedLanguage,
-                priority = TtsPriority.ALERT
-            )
+            val request =
+                TtsRequest(
+                    requestId = UUID.randomUUID().toString(),
+                    text = text,
+                    language = _uiState.value.selectedLanguage,
+                    priority = TtsPriority.ALERT,
+                )
             ttsManager.speak(request)
         }
     }

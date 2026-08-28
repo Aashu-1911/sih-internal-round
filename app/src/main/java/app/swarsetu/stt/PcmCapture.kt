@@ -72,8 +72,7 @@ class PcmCapture(
     /**
      * Whether capture can start (permission granted + not already capturing).
      */
-    fun canCapture(): Boolean =
-        hasPermission() && _state.value != State.CAPTURING
+    fun canCapture(): Boolean = hasPermission() && _state.value != State.CAPTURING
 
     /**
      * Start capturing PCM audio. Opens the microphone.
@@ -83,11 +82,12 @@ class PcmCapture(
     fun start(): Boolean {
         if (!canCapture()) return false
 
-        val bufferSize = AudioRecord.getMinBufferSize(
-            SAMPLE_RATE,
-            CHANNEL_CONFIG,
-            AUDIO_FORMAT,
-        )
+        val bufferSize =
+            AudioRecord.getMinBufferSize(
+                SAMPLE_RATE,
+                CHANNEL_CONFIG,
+                AUDIO_FORMAT,
+            )
         if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
             Log.e(TAG, "Invalid buffer size: $bufferSize")
             return false
@@ -97,13 +97,14 @@ class PcmCapture(
         val actualBufferSize = bufferSize * 2
 
         try {
-            recorder = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION, // No AGC/noise suppression
-                SAMPLE_RATE,
-                CHANNEL_CONFIG,
-                AUDIO_FORMAT,
-                actualBufferSize,
-            )
+            recorder =
+                AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION, // No AGC/noise suppression
+                    SAMPLE_RATE,
+                    CHANNEL_CONFIG,
+                    AUDIO_FORMAT,
+                    actualBufferSize,
+                )
         } catch (e: SecurityException) {
             Log.e(TAG, "Microphone permission denied: ${e.message}")
             return false
@@ -164,59 +165,60 @@ class PcmCapture(
         silenceMs: Long = 1_500L,
         maxDurationMs: Long = 5 * 60 * 1_000L,
         onAmplitude: ((Float) -> Unit)? = null,
-    ): ShortArray? = withContext(Dispatchers.IO) {
-        val rec = recorder ?: return@withContext null
-        if (_state.value != State.CAPTURING) return@withContext null
+    ): ShortArray? =
+        withContext(Dispatchers.IO) {
+            val rec = recorder ?: return@withContext null
+            if (_state.value != State.CAPTURING) return@withContext null
 
-        val allSamples = mutableListOf<Short>()
-        val silenceThreshold = SILENCE_THRESHOLD
-        val samplesPerSilence = (SAMPLE_RATE * silenceMs / 1000).toInt()
-        val samplesPerMax = (SAMPLE_RATE * maxDurationMs / 1000).toInt()
-        val chunkSize = SAMPLE_RATE / 10 // 100ms chunks
+            val allSamples = mutableListOf<Short>()
+            val silenceThreshold = SILENCE_THRESHOLD
+            val samplesPerSilence = (SAMPLE_RATE * silenceMs / 1000).toInt()
+            val samplesPerMax = (SAMPLE_RATE * maxDurationMs / 1000).toInt()
+            val chunkSize = SAMPLE_RATE / 10 // 100ms chunks
 
-        var consecutiveSilentSamples = 0
-        var totalSamples = 0
+            var consecutiveSilentSamples = 0
+            var totalSamples = 0
 
-        while (totalSamples < samplesPerMax) {
-            ensureActive()
+            while (totalSamples < samplesPerMax) {
+                ensureActive()
 
-            val buffer = ShortArray(chunkSize)
-            val read = rec.read(buffer, 0, chunkSize)
-            if (read <= 0) break
+                val buffer = ShortArray(chunkSize)
+                val read = rec.read(buffer, 0, chunkSize)
+                if (read <= 0) break
 
-            // Check amplitude
-            var maxAmplitude = 0
-            for (i in 0 until read) {
-                val sample = kotlin.math.abs(buffer[i].toInt())
-                if (sample > maxAmplitude) maxAmplitude = sample
-            }
-            val amplitude = (maxAmplitude.toFloat() / Short.MAX_VALUE).coerceIn(0f, 1f)
-            onAmplitude?.invoke(amplitude)
-
-            // Track silence
-            if (maxAmplitude < silenceThreshold) {
-                consecutiveSilentSamples += read
-                if (consecutiveSilentSamples >= samplesPerSilence && allSamples.isNotEmpty()) {
-                    Log.d(TAG, "Silence detected after ${totalSamples * 1000L / SAMPLE_RATE}ms")
-                    break
+                // Check amplitude
+                var maxAmplitude = 0
+                for (i in 0 until read) {
+                    val sample = kotlin.math.abs(buffer[i].toInt())
+                    if (sample > maxAmplitude) maxAmplitude = sample
                 }
+                val amplitude = (maxAmplitude.toFloat() / Short.MAX_VALUE).coerceIn(0f, 1f)
+                onAmplitude?.invoke(amplitude)
+
+                // Track silence
+                if (maxAmplitude < silenceThreshold) {
+                    consecutiveSilentSamples += read
+                    if (consecutiveSilentSamples >= samplesPerSilence && allSamples.isNotEmpty()) {
+                        Log.d(TAG, "Silence detected after ${totalSamples * 1000L / SAMPLE_RATE}ms")
+                        break
+                    }
+                } else {
+                    consecutiveSilentSamples = 0
+                }
+
+                // Accumulate
+                for (i in 0 until read) {
+                    allSamples.add(buffer[i])
+                }
+                totalSamples += read
+            }
+
+            if (allSamples.isEmpty()) {
+                null
             } else {
-                consecutiveSilentSamples = 0
+                ShortArray(allSamples.size) { allSamples[it] }
             }
-
-            // Accumulate
-            for (i in 0 until read) {
-                allSamples.add(buffer[i])
-            }
-            totalSamples += read
         }
-
-        if (allSamples.isEmpty()) {
-            null
-        } else {
-            ShortArray(allSamples.size) { allSamples[it] }
-        }
-    }
 
     /**
      * Stop capturing and release the microphone. Idempotent.
@@ -225,16 +227,16 @@ class PcmCapture(
         Log.d(TAG, "PCM_STOP_REQUESTED")
         if (_state.value != State.CAPTURING) return
         _state.value = State.IDLE
-        runCatching { 
-            recorder?.stop() 
+        runCatching {
+            recorder?.stop()
             Log.d(TAG, "AUDIO_RECORD_STOPPED")
         }
-        runCatching { 
-            recorder?.release() 
+        runCatching {
+            recorder?.release()
             Log.d(TAG, "AUDIO_RECORD_RELEASED")
         }
         recorder = null
-        Log.d(TAG, "Capture stopped: ${capturedSamples} samples (${capturedDurationMs}ms)")
+        Log.d(TAG, "Capture stopped: $capturedSamples samples (${capturedDurationMs}ms)")
     }
 
     /**
@@ -243,12 +245,12 @@ class PcmCapture(
     fun cancel() {
         Log.d(TAG, "PCM_STOP_REQUESTED (Cancel)")
         _state.value = State.IDLE
-        runCatching { 
-            recorder?.stop() 
+        runCatching {
+            recorder?.stop()
             Log.d(TAG, "AUDIO_RECORD_STOPPED")
         }
-        runCatching { 
-            recorder?.release() 
+        runCatching {
+            recorder?.release()
             Log.d(TAG, "AUDIO_RECORD_RELEASED")
         }
         recorder = null

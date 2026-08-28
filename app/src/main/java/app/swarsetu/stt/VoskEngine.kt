@@ -48,7 +48,6 @@ class VoskEngine(
     private val context: Context,
     private val modelManager: SttModelManager,
 ) : SttEngine {
-
     private val mutex = Mutex()
     private var initialized = false
     private var _config: SttConfig? = null
@@ -64,33 +63,34 @@ class VoskEngine(
     override val isReady: Boolean get() = initialized
     override val currentLanguage: SttLanguage? get() = _currentLanguage
 
-    override suspend fun initialize(config: SttConfig) = mutex.withLock {
-        if (initialized && _currentLanguage == config.language) {
-            Log.d(TAG, "Already initialized for ${config.language.code}")
-            return@withLock
+    override suspend fun initialize(config: SttConfig) =
+        mutex.withLock {
+            if (initialized && _currentLanguage == config.language) {
+                Log.d(TAG, "Already initialized for ${config.language.code}")
+                return@withLock
+            }
+
+            // Release previous model if switching languages
+            releaseModelInternal()
+
+            _config = config
+            _currentLanguage = config.language
+
+            if (!modelManager.isAvailable(config.language)) {
+                Log.w(TAG, "No model available for ${config.language.code} — returning empty results")
+                initialized = true
+                return@withLock
+            }
+
+            try {
+                loadModelInternal(config.language)
+                initialized = true
+                Log.d(TAG, "Initialized for ${config.language.code}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Model load failed for ${config.language.code}: ${e.message}", e)
+                initialized = true // Graceful degradation
+            }
         }
-
-        // Release previous model if switching languages
-        releaseModelInternal()
-
-        _config = config
-        _currentLanguage = config.language
-
-        if (!modelManager.isAvailable(config.language)) {
-            Log.w(TAG, "No model available for ${config.language.code} — returning empty results")
-            initialized = true
-            return@withLock
-        }
-
-        try {
-            loadModelInternal(config.language)
-            initialized = true
-            Log.d(TAG, "Initialized for ${config.language.code}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Model load failed for ${config.language.code}: ${e.message}", e)
-            initialized = true // Graceful degradation
-        }
-    }
 
     override suspend fun setLanguage(language: SttLanguage) {
         val currentConfig = _config ?: SttConfig()
@@ -101,121 +101,131 @@ class VoskEngine(
     override suspend fun transcribe(
         pcm: ShortArray,
         language: SttLanguage,
-    ): SttResult = withContext(Dispatchers.Default) {
-        mutex.withLock {
-            if (pcm.isEmpty()) return@withLock SttResult.empty(language)
-            if (!initialized || model == null) {
-                Log.w(TAG, "transcribe called but no model loaded (simulating response)")
-                return@withLock SttResult(
-                    text = "This is a simulated voice message because the language model was not downloaded.",
-                    type = SttResultType.FINAL,
-                    language = language,
-                    confidence = 1.0f,
-                    durationMs = pcm.size * 1000L / language.sampleRate
-                )
-            }
-
-            val startMs = System.currentTimeMillis()
-            val result = runCatching { inferPcmInternal(pcm, language) }
-                .getOrElse { e ->
-                    Log.w(TAG, "Inference failed: ${e.message}")
-                    SttResult.empty(language)
+    ): SttResult =
+        withContext(Dispatchers.Default) {
+            mutex.withLock {
+                if (pcm.isEmpty()) return@withLock SttResult.empty(language)
+                if (!initialized || model == null) {
+                    if (modelManager.isAvailable(language)) {
+                        try {
+                            loadModelInternal(language)
+                            initialized = true
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Lazy load of STT model failed for ${language.code}: ${e.message}")
+                        }
+                    }
                 }
-            val elapsed = System.currentTimeMillis() - startMs
 
-            if (result.text.isBlank()) {
-                SttResult.empty(language)
-            } else {
-                result.copy(durationMs = elapsed)
+                if (!initialized || model == null) {
+                    Log.w(TAG, "transcribe called but no model loaded for ${language.code} — returning empty result")
+                    return@withLock SttResult.empty(language)
+                }
+
+                val startMs = System.currentTimeMillis()
+                val result =
+                    runCatching { inferPcmInternal(pcm, language) }
+                        .getOrElse { e ->
+                            Log.w(TAG, "Inference failed: ${e.message}")
+                            SttResult.empty(language)
+                        }
+                val elapsed = System.currentTimeMillis() - startMs
+
+                if (result.text.isBlank()) {
+                    SttResult.empty(language)
+                } else {
+                    result.copy(durationMs = elapsed)
+                }
             }
         }
-    }
 
     override fun transcribeStream(
         pcm: ShortArray,
         language: SttLanguage,
-    ): Flow<SttResult> = flow {
-        if (pcm.isEmpty()) {
-            emit(SttResult.empty(language))
-            return@flow
-        }
-        if (!initialized || model == null) {
-            emit(SttResult.empty(language))
-            return@flow
-        }
+    ): Flow<SttResult> =
+        flow {
+            if (pcm.isEmpty()) {
+                emit(SttResult.empty(language))
+                return@flow
+            }
+            if (!initialized || model == null) {
+                emit(SttResult.empty(language))
+                return@flow
+            }
 
-        val rec = createRecognizer(language) ?: run {
-            emit(SttResult.empty(language))
-            return@flow
-        }
+            val rec =
+                createRecognizer(language) ?: run {
+                    emit(SttResult.empty(language))
+                    return@flow
+                }
 
-        try {
-            val chunkSize = language.sampleRate / 4 // 250ms chunks for streaming
-            val totalChunks = (pcm.size + chunkSize - 1) / chunkSize
-            val accumulated = StringBuilder()
+            try {
+                val chunkSize = language.sampleRate / 4 // 250ms chunks for streaming
+                val totalChunks = (pcm.size + chunkSize - 1) / chunkSize
+                val accumulated = StringBuilder()
 
-            for (i in 0 until totalChunks) {
-                val start = i * chunkSize
-                val end = minOf(start + chunkSize, pcm.size)
-                val chunk = pcm.copyOfRange(start, end)
+                for (i in 0 until totalChunks) {
+                    val start = i * chunkSize
+                    val end = minOf(start + chunkSize, pcm.size)
+                    val chunk = pcm.copyOfRange(start, end)
 
-                // Convert ShortArray to bytes (little-endian 16-bit PCM)
-                val bytes = shortsToBytes(chunk)
-                val isFinal = rec.acceptWaveForm(bytes, bytes.size)
+                    // Convert ShortArray to bytes (little-endian 16-bit PCM)
+                    val bytes = shortsToBytes(chunk)
+                    val isFinal = rec.acceptWaveForm(bytes, bytes.size)
 
-                val json = if (isFinal) rec.result else rec.partialResult
-                val text = parseVoskText(json)
+                    val json = if (isFinal) rec.result else rec.partialResult
+                    val text = parseVoskText(json)
 
-                if (text.isNotBlank()) {
-                    if (isFinal) {
-                        accumulated.append(text)
+                    if (text.isNotBlank()) {
+                        if (isFinal) {
+                            accumulated.append(text)
+                        }
+                        // For partial: emit current accumulated + partial text
+                        val displayText =
+                            if (isFinal) {
+                                accumulated.toString().trim()
+                            } else {
+                                (accumulated.toString() + text).trim()
+                            }
+
+                        emit(
+                            SttResult(
+                                text = displayText,
+                                type = if (isFinal) SttResultType.FINAL else SttResultType.PARTIAL,
+                                language = language,
+                            ),
+                        )
+                    } else if (isFinal) {
+                        // Final result was empty — emit accumulated so far
+                        emit(
+                            SttResult(
+                                text = accumulated.toString().trim(),
+                                type = SttResultType.FINAL,
+                                language = language,
+                            ),
+                        )
                     }
-                    // For partial: emit current accumulated + partial text
-                    val displayText = if (isFinal) {
-                        accumulated.toString().trim()
-                    } else {
-                        (accumulated.toString() + text).trim()
-                    }
+                }
 
+                // Final flush
+                val finalJson = rec.finalResult
+                val finalText = parseVoskText(finalJson)
+                if (finalText.isNotBlank()) {
+                    accumulated.append(finalText)
+                }
+                val finalResult = accumulated.toString().trim()
+                if (finalResult.isNotEmpty() || totalChunks == 0) {
                     emit(
                         SttResult(
-                            text = displayText,
-                            type = if (isFinal) SttResultType.FINAL else SttResultType.PARTIAL,
-                            language = language,
-                        ),
-                    )
-                } else if (isFinal) {
-                    // Final result was empty — emit accumulated so far
-                    emit(
-                        SttResult(
-                            text = accumulated.toString().trim(),
+                            text = finalResult,
                             type = SttResultType.FINAL,
                             language = language,
                         ),
                     )
                 }
+            } finally {
+                runCatching { rec.close() }
             }
-
-            // Final flush
-            val finalJson = rec.finalResult
-            val finalText = parseVoskText(finalJson)
-            if (finalText.isNotBlank()) {
-                accumulated.append(finalText)
-            }
-            val finalResult = accumulated.toString().trim()
-            if (finalResult.isNotEmpty() || totalChunks == 0) {
-                emit(
-                    SttResult(
-                        text = finalResult,
-                        type = SttResultType.FINAL,
-                        language = language,
-                    ),
-                )
-            }
-        } finally {
-            runCatching { rec.close() }
-        }
-    }.flowOn(Dispatchers.Default)
+        }.flowOn(Dispatchers.Default)
 
     override suspend fun release() {
         mutex.withLock {
@@ -231,15 +241,30 @@ class VoskEngine(
 
     private suspend fun loadModelInternal(language: SttLanguage) {
         val modelDir = extractModelToInternal(language)
-        model = Model(modelDir.absolutePath)
+        val actualDir = findModelRootDir(modelDir)
+        model = Model(actualDir.absolutePath)
         modelManager.markLoaded(
             SttModelInfo(
                 language = language,
-                modelPath = modelDir.absolutePath,
+                modelPath = actualDir.absolutePath,
                 description = "Vosk model for ${language.displayName}",
             ),
         )
-        Log.d(TAG, "Model loaded: ${language.code} from ${modelDir.absolutePath}")
+        Log.d(TAG, "Model loaded: ${language.code} from ${actualDir.absolutePath}")
+    }
+
+    private fun findModelRootDir(dir: File): File {
+        if (!dir.exists() || !dir.isDirectory) return dir
+        if (File(dir, "conf").exists() || File(dir, "am").exists() || File(dir, "model.conf").exists()) {
+            return dir
+        }
+        val subdirs = dir.listFiles { f -> f.isDirectory } ?: return dir
+        for (sub in subdirs) {
+            if (File(sub, "conf").exists() || File(sub, "am").exists() || File(sub, "model.conf").exists()) {
+                return sub
+            }
+        }
+        return dir
     }
 
     private fun releaseModelInternal() {
@@ -259,7 +284,7 @@ class VoskEngine(
         val targetDir = File(context.filesDir, "stt/$assetDir")
 
         if (targetDir.exists() && targetDir.list()?.isNotEmpty() == true) {
-            Log.d(TAG, "Model already extracted: ${assetDir}")
+            Log.d(TAG, "Model already extracted: $assetDir")
             return targetDir
         }
 
@@ -290,7 +315,10 @@ class VoskEngine(
         return targetDir
     }
 
-    private fun extractAssetDir(assetPath: String, targetDir: File) {
+    private fun extractAssetDir(
+        assetPath: String,
+        targetDir: File,
+    ) {
         targetDir.mkdirs()
         val assets = context.assets.list(assetPath) ?: return
         for (name in assets) {
@@ -311,7 +339,10 @@ class VoskEngine(
 
     // --- Internal inference ---
 
-    private fun inferPcmInternal(pcm: ShortArray, language: SttLanguage): SttResult {
+    private fun inferPcmInternal(
+        pcm: ShortArray,
+        language: SttLanguage,
+    ): SttResult {
         val rec = createRecognizer(language) ?: return SttResult.empty(language)
         try {
             val bytes = shortsToBytes(pcm)

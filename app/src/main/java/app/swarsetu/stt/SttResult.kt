@@ -43,10 +43,11 @@ data class SttResult(
 
     companion object {
         /** An empty result — returned on silence or when the engine produces nothing. */
-        fun empty(language: SttLanguage) = SttResult(
-            text = "",
-            type = SttResultType.FINAL,
-            language = language,
-        )
+        fun empty(language: SttLanguage) =
+            SttResult(
+                text = "",
+                type = SttResultType.FINAL,
+                language = language,
+            )
     }
 }

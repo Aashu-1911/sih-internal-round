@@ -21,17 +21,13 @@ package app.swarsetu.stt
 class VoiceActivityDetector(
     /** RMS energy below which a frame is considered silent. */
     private val silenceThreshold: Int = DEFAULT_SILENCE_THRESHOLD,
-
     /** RMS energy above which a frame is considered speech. */
     private val speechThreshold: Int = DEFAULT_SPEECH_THRESHOLD,
-
     /** Number of consecutive silent frames required to declare end of speech. */
     private val silenceFrames: Int = DEFAULT_SILENCE_FRAMES,
-
     /** Number of consecutive speech frames required to declare start of speech. */
     private val speechFrames: Int = DEFAULT_SPEECH_FRAMES,
 ) {
-
     /** Current VAD state. */
     enum class State {
         /** No speech detected. */

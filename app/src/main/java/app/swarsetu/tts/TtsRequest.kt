@@ -12,7 +12,7 @@ enum class TtsPriority {
     /**
      * Alert message. Preempts normal playback immediately.
      */
-    ALERT
+    ALERT,
 }
 
 /**
@@ -26,5 +26,5 @@ data class TtsRequest(
     val createdAtMs: Long = System.currentTimeMillis(),
     val isAlert: Boolean = priority == TtsPriority.ALERT,
     /** Optional identifier passed to the Android TTS engine. Defaults to requestId if null. */
-    val utteranceId: String? = null
+    val utteranceId: String? = null,
 )

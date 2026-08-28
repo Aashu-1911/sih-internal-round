@@ -613,7 +613,7 @@ class WifiAwareTransport(
         val healthy = hasHardware && _health.value == TransportHealth.Healthy && session != null
         val reachableOwed = anyReachableSyncOwed()
         val corroboratedOwed = anySyncOwed()
-        
+
         val decision =
             NanWatchdogPolicy.decide(
                 healthy = healthy,
@@ -629,8 +629,10 @@ class WifiAwareTransport(
                 wedgeRestartMs = WEDGE_RESTART_MS,
             )
         syncOwedSince = decision.nextSyncOwedSince
-        
-        Log.d(TAG, """
+
+        Log.d(
+            TAG,
+            """
             NAN_WATCHDOG:
             healthy=$healthy
             reachableOwed=$reachableOwed
@@ -640,8 +642,9 @@ class WifiAwareTransport(
             lastReattachAt=${now - lastReattachAt}ms ago
             lastRestartAt=${now - lastRestartAt}ms ago
             action=${decision.action}
-        """.trimIndent())
-        
+            """.trimIndent(),
+        )
+
         when (decision.action) {
             NanWatchdogPolicy.Action.None -> {}
 
@@ -657,9 +660,12 @@ class WifiAwareTransport(
                 lastRestartAt = now
                 Log.e(TAG, "NAN data plane wedged (sync owed ${now - syncOwedSince}ms with no link) — restarting process")
                 logState()
-                
-                Log.e(TAG, "NAN_WATCHDOG_SELF_KILL: elapsed=${now}ms syncOwedFor=${now - syncOwedSince}ms corroborated=${corroboratedOwed} peers=${peers.size} reachable=${reachablePeers.size} inFlight=${inFlight.size} sessionActive=${session != null} health=${_health.value}")
-                
+
+                Log.e(
+                    TAG,
+                    "NAN_WATCHDOG_SELF_KILL: elapsed=${now}ms syncOwedFor=${now - syncOwedSince}ms corroborated=$corroboratedOwed peers=${peers.size} reachable=${reachablePeers.size} inFlight=${inFlight.size} sessionActive=${session != null} health=${_health.value}",
+                )
+
                 if (app.swarsetu.BuildConfig.DEBUG) {
                     Log.w(TAG, "DEBUG BUILD: Skipping Process.killProcess(). Executing transport reattach instead.")
                     reattach()

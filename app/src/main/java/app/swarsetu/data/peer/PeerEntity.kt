@@ -47,4 +47,5 @@ data class PeerEntity(
     val prekeyPub: String? = null,
     val prekeySig: String? = null,
     val prekeyProfileAt: Long? = null,
+    val preferredLanguage: String? = null,
 )

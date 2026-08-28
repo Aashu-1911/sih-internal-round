@@ -187,6 +187,22 @@ object MeshMigrations {
             }
         }
 
+    /**
+     * v8 — Semantic translation message types + peer preferred language.
+     */
+    val MIGRATION_7_8 =
+        object : Migration(7, 8) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE `messages` ADD COLUMN `messageType` INTEGER NOT NULL DEFAULT 0")
+                connection.execSQL("ALTER TABLE `messages` ADD COLUMN `sourceLanguage` TEXT")
+                connection.execSQL("ALTER TABLE `messages` ADD COLUMN `targetLanguage` TEXT")
+                connection.execSQL("ALTER TABLE `messages` ADD COLUMN `sourceText` TEXT")
+                connection.execSQL("ALTER TABLE `messages` ADD COLUMN `translatedText` TEXT")
+                
+                connection.execSQL("ALTER TABLE `peers` ADD COLUMN `preferredLanguage` TEXT")
+            }
+        }
+
     /** All migrations, applied by Room in order. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
 }

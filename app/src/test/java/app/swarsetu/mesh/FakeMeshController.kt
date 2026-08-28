@@ -79,6 +79,7 @@ class FakeMeshController : MeshController {
         replyTo: ReplyRef?,
         voiceTextLanguage: String?,
         isAlert: Boolean,
+        messageId: String?,
     ): Boolean {
         sentChats += SentChat(text, attachment, mentions, recipientId, group, replyTo, voiceTextLanguage, isAlert)
         return sendChatResult

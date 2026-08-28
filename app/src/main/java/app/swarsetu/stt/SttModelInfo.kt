@@ -9,16 +9,12 @@ package app.swarsetu.stt
 data class SttModelInfo(
     /** The language this model serves. */
     val language: SttLanguage,
-
     /** Absolute path or asset path to the model file(s). */
     val modelPath: String,
-
     /** Approximate model size in bytes, or -1 if unknown. Used for memory budget decisions. */
     val sizeBytes: Long = -1L,
-
     /** Whether the model file was successfully read and validated. */
     val available: Boolean = true,
-
     /**
      * Human-readable description of the model (e.g. "Vosk small hi", "Whisper tiny.en").
      * Used in diagnostics and logging.
