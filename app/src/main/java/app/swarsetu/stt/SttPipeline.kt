@@ -273,8 +273,8 @@ class SttPipeline(
                 }
             }
 
-            // Check if silence timeout reached after speech
-            if (vadState == VoiceActivityDetector.State.SILENT && lastSpeechSample > 0) {
+            // Check if silence timeout reached after speech (when silenceTimeoutMs > 0)
+            if (silenceTimeoutMs > 0 && vadState == VoiceActivityDetector.State.SILENT && lastSpeechSample > 0) {
                 val silenceSamples = allSamples.size - lastSpeechSample
                 if (silenceSamples >= samplesPerSilenceTimeout) {
                     Log.d(TAG, "VAD silence timeout after ${allSamples.size * 1000L / language.sampleRate}ms")

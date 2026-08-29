@@ -345,12 +345,35 @@ class VoskEngine(
     ): SttResult {
         val rec = createRecognizer(language) ?: return SttResult.empty(language)
         try {
-            val bytes = shortsToBytes(pcm)
-            rec.acceptWaveForm(bytes, bytes.size)
-            val json = rec.finalResult
-            val text = parseVoskText(json)
+            val accumulated = StringBuilder()
+            val chunkSize = maxOf(language.sampleRate / 4, 2048) // ~250ms chunks
+            val totalChunks = (pcm.size + chunkSize - 1) / chunkSize
+
+            for (i in 0 until totalChunks) {
+                val start = i * chunkSize
+                val end = minOf(start + chunkSize, pcm.size)
+                val chunk = pcm.copyOfRange(start, end)
+                val bytes = shortsToBytes(chunk)
+                val isFinal = rec.acceptWaveForm(bytes, bytes.size)
+                if (isFinal) {
+                    val segmentText = parseVoskText(rec.result)
+                    if (segmentText.isNotBlank()) {
+                        if (accumulated.isNotEmpty()) accumulated.append(" ")
+                        accumulated.append(segmentText)
+                    }
+                }
+            }
+
+            val finalJson = rec.finalResult
+            val finalText = parseVoskText(finalJson)
+            if (finalText.isNotBlank()) {
+                if (accumulated.isNotEmpty()) accumulated.append(" ")
+                accumulated.append(finalText)
+            }
+
+            val fullText = accumulated.toString().trim()
             return SttResult(
-                text = text,
+                text = fullText,
                 type = SttResultType.FINAL,
                 language = language,
             )

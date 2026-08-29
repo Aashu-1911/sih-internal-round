@@ -288,6 +288,8 @@ class PttGroupIntegrationTest {
                 sttPipeline = mockSttPipeline,
                 meshController = mockMeshController,
                 voiceController = mockVoiceController,
+                translatorEngine = app.swarsetu.translation.TranslatorEngine(),
+                peers = io.mockk.mockk(relaxed = true),
             )
 
         // Create GroupInfo for a group conversation

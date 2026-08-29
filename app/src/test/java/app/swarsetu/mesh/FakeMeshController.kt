@@ -29,7 +29,6 @@ class FakeMeshController : MeshController {
     var mintGroupRootsCount = 0
     var restartCount = 0
 
-    /** One recorded [sendChat] call, in the order it was made. */
     data class SentChat(
         val text: String,
         val attachment: AttachmentStore.Ingested?,
@@ -37,8 +36,13 @@ class FakeMeshController : MeshController {
         val recipientId: String?,
         val group: GroupInfo?,
         val replyTo: ReplyRef?,
-        val voiceTextLanguage: String? = null,
+        val messageType: Int = app.swarsetu.data.message.MessageEntity.TYPE_NORMAL_TEXT,
+        val sourceLanguage: String? = null,
+        val targetLanguage: String? = null,
+        val sourceText: String? = null,
+        val translatedText: String? = null,
         val isAlert: Boolean = false,
+        val messageId: String? = null,
     )
 
     val sentChats = mutableListOf<SentChat>()
@@ -77,11 +81,29 @@ class FakeMeshController : MeshController {
         recipientId: String?,
         group: GroupInfo?,
         replyTo: ReplyRef?,
-        voiceTextLanguage: String?,
+        messageType: Int,
+        sourceLanguage: String?,
+        targetLanguage: String?,
+        sourceText: String?,
+        translatedText: String?,
         isAlert: Boolean,
         messageId: String?,
     ): Boolean {
-        sentChats += SentChat(text, attachment, mentions, recipientId, group, replyTo, voiceTextLanguage, isAlert)
+        sentChats += SentChat(
+            text = text,
+            attachment = attachment,
+            mentions = mentions,
+            recipientId = recipientId,
+            group = group,
+            replyTo = replyTo,
+            messageType = messageType,
+            sourceLanguage = sourceLanguage,
+            targetLanguage = targetLanguage,
+            sourceText = sourceText,
+            translatedText = translatedText,
+            isAlert = isAlert,
+            messageId = messageId,
+        )
         return sendChatResult
     }
 

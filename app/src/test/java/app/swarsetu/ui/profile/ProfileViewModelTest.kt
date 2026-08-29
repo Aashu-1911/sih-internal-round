@@ -37,6 +37,7 @@ class ProfileViewModelTest {
     private val identity = mockk<Identity>(relaxed = true)
     private val avatars = mockk<AvatarStore>(relaxed = true)
     private val blobs = mockk<BlobRepository>(relaxed = true)
+    private val sttModelManager = mockk<app.swarsetu.stt.SttModelManager>(relaxed = true)
 
     private val nameFlow = MutableStateFlow("Alice")
     private val statusFlow = MutableStateFlow("Hiking")
@@ -55,6 +56,7 @@ class ProfileViewModelTest {
         every { settings.contentFilteringEnabled } returns filteringFlow
         every { settings.spoolEnabled } returns spoolEnabledFlow
         every { settings.spoolUrls } returns spoolUrlsFlow
+        every { settings.sttLanguageCode } returns MutableStateFlow("hi")
     }
 
     @After
@@ -62,7 +64,7 @@ class ProfileViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun vm() = ProfileViewModel(settings, identity, avatars, blobs, MutableStateFlow(RelayFacts()))
+    private fun vm() = ProfileViewModel(settings, identity, avatars, blobs, MutableStateFlow(RelayFacts()), sttModelManager)
 
     @Test
     fun loadsPersistedProfileAndIsNotDirty() =

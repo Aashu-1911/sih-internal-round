@@ -279,6 +279,8 @@ class PttNearbyRoomIntegrationTest {
                 sttPipeline = mockSttPipeline,
                 meshController = mockMeshController,
                 voiceController = mockVoiceController,
+                translatorEngine = app.swarsetu.translation.TranslatorEngine(),
+                peers = io.mockk.mockk(relaxed = true),
             )
 
         // Simulate PTT press in a Nearby room: recipientId = null, group = null (broadcast)

@@ -21,17 +21,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
-@OptIn(ExperimentalCoroutinesApi::class)
 class VoiceConversationControllerTest {
     private lateinit var sttPipeline: SttPipeline
     private lateinit var ttsManager: TtsManager
-    private val testScope = TestScope(UnconfinedTestDispatcher())
 
     private val latestResultFlow = MutableStateFlow<SttResult?>(null)
     private val pipelineStateFlow = MutableStateFlow(SttPipeline.PipelineState.IDLE)
 
     @Before
     fun setup() {
+        latestResultFlow.value = null
+        pipelineStateFlow.value = SttPipeline.PipelineState.IDLE
         sttPipeline =
             mockk(relaxed = true) {
                 every { latestResult } returns latestResultFlow
@@ -50,7 +50,7 @@ class VoiceConversationControllerTest {
 
     @Test
     fun `final STT result triggers TTS`() =
-        testScope.runTest {
+        runTest(UnconfinedTestDispatcher()) {
             val controller = createController(backgroundScope)
             val result = SttResult("hello", SttResultType.FINAL, SttLanguage.ENGLISH)
             latestResultFlow.value = result
@@ -66,7 +66,7 @@ class VoiceConversationControllerTest {
 
     @Test
     fun `partial STT result does not trigger TTS`() =
-        testScope.runTest {
+        runTest(UnconfinedTestDispatcher()) {
             val controller = createController(backgroundScope)
             val result = SttResult("hello", SttResultType.PARTIAL, SttLanguage.ENGLISH)
             latestResultFlow.value = result
@@ -76,7 +76,7 @@ class VoiceConversationControllerTest {
 
     @Test
     fun `empty final text does not trigger TTS`() =
-        testScope.runTest {
+        runTest(UnconfinedTestDispatcher()) {
             val controller = createController(backgroundScope)
             val result = SttResult("   ", SttResultType.FINAL, SttLanguage.ENGLISH)
             latestResultFlow.value = result
@@ -86,7 +86,7 @@ class VoiceConversationControllerTest {
 
     @Test
     fun `correct language mapping`() =
-        testScope.runTest {
+        runTest(UnconfinedTestDispatcher()) {
             val controller = createController(backgroundScope)
             val result = SttResult("नमस्ते", SttResultType.FINAL, SttLanguage.HINDI)
             latestResultFlow.value = result
@@ -102,7 +102,7 @@ class VoiceConversationControllerTest {
 
     @Test
     fun `duplicate final result instance does not speak twice`() =
-        testScope.runTest {
+        runTest(UnconfinedTestDispatcher()) {
             val controller = createController(backgroundScope)
             val result = SttResult("hello", SttResultType.FINAL, SttLanguage.ENGLISH)
 
@@ -118,7 +118,7 @@ class VoiceConversationControllerTest {
 
     @Test
     fun `different final result with same text speaks twice`() =
-        testScope.runTest {
+        runTest(UnconfinedTestDispatcher()) {
             val controller = createController(backgroundScope)
             val result1 = SttResult("Help", SttResultType.FINAL, SttLanguage.ENGLISH, durationMs = 1000)
             val result2 = SttResult("Help", SttResultType.FINAL, SttLanguage.ENGLISH, durationMs = 1200)
@@ -131,7 +131,7 @@ class VoiceConversationControllerTest {
 
     @Test
     fun `stop prevents pending TTS`() =
-        testScope.runTest {
+        runTest(UnconfinedTestDispatcher()) {
             val controller = createController(backgroundScope)
             controller.stopSpeaking()
             verify { ttsManager.stopAll() }

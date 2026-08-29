@@ -30,39 +30,48 @@ class VoiceMessageReceiver(
         
         val isVoice = entity.messageType == MessageEntity.TYPE_TRANSLATED_VOICE ||
             entity.messageType == MessageEntity.TYPE_VOICE_NOTE ||
-            entity.sourceText != null
+            entity.sourceText != null ||
+            entity.voiceTextLanguage != null
 
         return scope.launch {
-            // Determine the receiving user's preferred language.
-            val preferredLanguageString = settingsStore.sttLanguageCode.first().lowercase()
-            val normalizedPreferred = translatorEngine.normalizeToLanguageTag(preferredLanguageString) ?: preferredLanguageString
+            val originalLanguage = (entity.sourceLanguage ?: entity.voiceTextLanguage ?: "en").lowercase()
+            val preferredLanguage = settingsStore.sttLanguageCode.first().lowercase()
 
             var textToSpeak = entity.translatedText ?: entity.body
-            var languageToSpeak = entity.targetLanguage ?: entity.sourceLanguage ?: preferredLanguageString
-            val normalizedTarget = translatorEngine.normalizeToLanguageTag(languageToSpeak) ?: languageToSpeak
+            var languageToSpeak = entity.targetLanguage ?: originalLanguage
 
             // If the message has not been translated to receiver's preferred language, translate now
-            if (normalizedTarget != normalizedPreferred || entity.translatedText == null) {
-                val sourceLang = translatorEngine.normalizeToLanguageTag(entity.sourceLanguage ?: "en") ?: "en"
-                if (sourceLang != normalizedPreferred) {
-                    val inputToTranslate = entity.sourceText ?: entity.body
-                    if (inputToTranslate.isNotBlank()) {
-                        val translated = translatorEngine.translate(
+            if (originalLanguage != preferredLanguage && (languageToSpeak != preferredLanguage || entity.translatedText == null)) {
+                val inputToTranslate = entity.sourceText ?: entity.body
+                if (inputToTranslate.isNotBlank()) {
+                    val myName = try { settingsStore.displayName.first() } catch (_: Throwable) { null }
+                    val translated = if (!myName.isNullOrBlank()) {
+                        translatorEngine.translate(
                             text = inputToTranslate,
-                            sourceLang = sourceLang,
-                            targetLang = normalizedPreferred,
+                            sourceLang = originalLanguage,
+                            targetLang = preferredLanguage,
+                            protectedNouns = listOf(myName),
                         )
-                        if (translated.isNotBlank()) {
-                            textToSpeak = translated
-                            languageToSpeak = normalizedPreferred
+                    } else {
+                        translatorEngine.translate(
+                            text = inputToTranslate,
+                            sourceLang = originalLanguage,
+                            targetLang = preferredLanguage,
+                        )
+                    }
+                    if (translated.isNotBlank() && translated != inputToTranslate) {
+                        textToSpeak = translated
+                        languageToSpeak = preferredLanguage
 
-                            // Update entity in DB with translated text for local display
-                            val updatedEntity = entity.copy(
-                                translatedText = textToSpeak,
-                                targetLanguage = languageToSpeak,
-                            )
-                            messageRepository.save(updatedEntity)
-                        }
+                        // Update entity in DB with translated text for local display
+                        val updatedEntity = entity.copy(
+                            translatedText = textToSpeak,
+                            targetLanguage = languageToSpeak,
+                        )
+                        messageRepository.save(updatedEntity)
+                    } else {
+                        textToSpeak = inputToTranslate
+                        languageToSpeak = originalLanguage
                     }
                 }
             }
@@ -77,7 +86,7 @@ class VoiceMessageReceiver(
                         requestId = entity.id,
                         text = textToSpeak,
                         language = finalLanguage,
-                        priority = TtsPriority.ALERT,
+                        priority = if (entity.isAlert) TtsPriority.ALERT else TtsPriority.NORMAL,
                     )
 
                 val t5 = System.currentTimeMillis()

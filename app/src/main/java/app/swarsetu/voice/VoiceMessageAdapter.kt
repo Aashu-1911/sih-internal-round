@@ -88,7 +88,8 @@ class VoiceMessageAdapter(
             val normalizedSource = translatorEngine.normalizeToLanguageTag(sourceLanguage) ?: sourceLanguage
             
             if (targetLanguage != normalizedSource) {
-                translatedText = translatorEngine.translate(result.text, normalizedSource, targetLanguage)
+                val protectedNouns = listOfNotNull(peer?.name)
+                translatedText = translatorEngine.translate(result.text, normalizedSource, targetLanguage, protectedNouns)
             }
         }
 
@@ -114,13 +115,14 @@ class VoiceMessageAdapter(
 
         voiceController.reportOutboundMessageMetrics(messageId, payloadSizeBytes, t2, t3)
 
+        val voiceTextLanguage = sourceLanguage
         meshController.sendChat(
             text = outboundText,
             recipientId = context.recipientId,
             group = context.group,
             replyTo = context.replyTo,
             messageType = app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE,
-            sourceLanguage = sourceLanguage,
+            sourceLanguage = voiceTextLanguage,
             targetLanguage = targetLanguage,
             sourceText = result.text,
             translatedText = translatedText,

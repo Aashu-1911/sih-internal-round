@@ -519,7 +519,7 @@ class ChatViewModel(
                 val outgoingReply = normalizeSelfAuthor(replyTo)
                 val group = if (isRoom) null else groups.find(conversationId)
 
-                val myLang = settings.sttLanguageCode.first().lowercase()
+                val myLang = selectedSttLanguage.value.code.lowercase()
                 var sourceLang: String? = myLang
                 var targetLang: String? = null
                 var translatedText: String? = null
@@ -533,7 +533,8 @@ class ChatViewModel(
                         if (normMy != normPeer && trimmed.isNotBlank()) {
                             targetLang = normPeer
                             sourceLang = normMy
-                            val res = translatorEngine.translate(trimmed, normMy, normPeer)
+                            val protectedNouns = listOfNotNull(peer.name, settings.displayName.first())
+                            val res = translatorEngine.translate(trimmed, normMy, normPeer, protectedNouns)
                             if (res.isNotBlank() && res != trimmed) {
                                 translatedText = res
                             }
@@ -575,9 +576,10 @@ class ChatViewModel(
                     _pendingAttachment.value = null
                     _clearInput.tryEmit(Unit)
                 } else {
+                    _isSending.value = false
                     _events.tryEmit(R.string.moderation_text_blocked)
                 }
-            } finally {
+            } catch (e: Exception) {
                 _isSending.value = false
             }
         }
@@ -588,7 +590,7 @@ class ChatViewModel(
         languageCode: String?,
     ) {
         if (text.isBlank()) return
-        val ttsLang = TtsLanguage.fromLanguageCode(languageCode) ?: TtsLanguage.HINDI
+        val ttsLang = TtsLanguage.fromLanguageCode(languageCode, text) ?: TtsLanguage.HINDI
         viewModelScope.launch {
             ttsManager.speak(
                 TtsRequest(
@@ -742,7 +744,7 @@ class ChatViewModel(
 
         if (sttPipeline.canCapture) {
             android.util.Log.d("ChatViewModel", "VOICE_START_ACCEPTED (STT)")
-            sttPipeline.startCapture(language)
+            sttPipeline.startCapture(language, silenceTimeoutMs = 0L)
         } else {
             android.util.Log.w("ChatViewModel", "VOICE_START_REJECTED (STT Permission)")
             voiceMessageAdapter.stopVoiceMessage()

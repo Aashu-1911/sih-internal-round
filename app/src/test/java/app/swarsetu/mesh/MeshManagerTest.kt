@@ -283,11 +283,13 @@ class MeshManagerTest {
             // and would abort the seeding coroutine before it ever reached the profile.
             coEvery { settings.spoolEnabled } returns MutableStateFlow(false)
             coEvery { settings.acceptedConversations } returns MutableStateFlow(emptySet())
+            coEvery { settings.sttLanguageCode } returns MutableStateFlow("hi")
             // setProfilePublishedAt returns DataStore's Preferences; the test only cares about the write.
             coEvery { settings.setProfilePublishedAt(any()) } answers {
                 publishedAt.value = firstArg()
                 mockk(relaxed = true)
             }
+            coEvery { settings.setProfileVersion(any()) } returns mockk(relaxed = true)
             coEvery { identity.publicKeyBundle() } returns me.bundle.encoded
             coEvery { identity.deviceTag() } returns "tag"
             coEvery { identity.currentPrekey(any()) } returns SignedPrekey(1, ByteArray(32), ByteArray(64), now)
