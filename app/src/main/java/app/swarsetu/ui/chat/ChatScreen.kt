@@ -1237,7 +1237,15 @@ private fun MessageBubble(
                                         ),
                                     style = bodyStyle,
                                 )
-                                if (row.messageType == app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE) {
+                                val isVoiceOrTranslated =
+                                    row.messageType == app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE ||
+                                        row.messageType == app.swarsetu.data.message.MessageEntity.TYPE_VOICE_NOTE ||
+                                        row.translatedText != null ||
+                                        row.sourceText != null ||
+                                        row.sourceLanguage != null ||
+                                        row.targetLanguage != null
+
+                                if (isVoiceOrTranslated) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.padding(top = 4.dp),
@@ -1260,7 +1268,7 @@ private fun MessageBubble(
                                             text = if (row.mine) {
                                                 stringResource(R.string.chat_voice_note_badge, row.sourceLanguage?.uppercase() ?: "AUDIO")
                                             } else {
-                                                stringResource(R.string.chat_translated_badge, row.targetLanguage?.uppercase() ?: "AUDIO")
+                                                stringResource(R.string.chat_translated_badge, row.targetLanguage?.uppercase() ?: row.sourceLanguage?.uppercase() ?: "AUDIO")
                                             },
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,

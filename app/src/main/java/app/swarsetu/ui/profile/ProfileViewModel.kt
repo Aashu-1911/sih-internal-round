@@ -85,7 +85,11 @@ class ProfileViewModel(
     fun setPreferredLanguage(language: SttLanguage) {
         viewModelScope.launch {
             settings.setSttLanguageCode(language.code)
-            checkInstalledLanguages()
+            if (!sttModelManager.isAvailable(language)) {
+                downloadModel(language)
+            } else {
+                checkInstalledLanguages()
+            }
         }
     }
 

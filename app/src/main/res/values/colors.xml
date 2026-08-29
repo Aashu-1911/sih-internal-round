@@ -8,6 +8,7 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="colorAccent">#454551</color>
+    <color name="ic_launcher_background">#FF0A0A0C</color>
 
     <!-- Launch-window background, drawn by the system before the first Compose frame (see themes.xml).
          Keep in lockstep with SwarSetuTheme's `background`/`surface` (ui/theme/Color.kt: BackgroundLight here,

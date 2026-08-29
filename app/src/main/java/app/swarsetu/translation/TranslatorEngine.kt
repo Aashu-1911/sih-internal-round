@@ -9,7 +9,14 @@ import com.google.mlkit.nl.translate.TranslateRemoteModel
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -119,78 +126,71 @@ class TranslatorEngine {
     }
 
     /**
-     * Downloads all supported Indian language models for 100% offline usage.
-     * Robust, sequential downloading with retries so network glitches don't abort the entire setup.
+     * Downloads all supported Indian language models in parallel batches for high-speed offline readiness.
      */
-    suspend fun downloadAllRequiredModels(onProgress: (Int, Int, String) -> Unit): Boolean {
-        val supportedLanguages =
-            listOf(
-                TranslateLanguage.ENGLISH,
-                TranslateLanguage.HINDI,
-                TranslateLanguage.MARATHI,
-                TranslateLanguage.GUJARATI,
-                TranslateLanguage.TAMIL,
-                TranslateLanguage.TELUGU,
-                TranslateLanguage.BENGALI,
-                TranslateLanguage.KANNADA,
-            )
+    suspend fun downloadAllRequiredModels(onProgress: (Int, Int, String) -> Unit): Boolean =
+        withContext(Dispatchers.IO) {
+            coroutineScope {
+                val supportedLanguages =
+                    listOf(
+                        TranslateLanguage.ENGLISH,
+                        TranslateLanguage.HINDI,
+                        TranslateLanguage.MARATHI,
+                        TranslateLanguage.GUJARATI,
+                        TranslateLanguage.TAMIL,
+                        TranslateLanguage.TELUGU,
+                        TranslateLanguage.BENGALI,
+                        TranslateLanguage.KANNADA,
+                    )
 
-        val modelManager = RemoteModelManager.getInstance()
-        val conditions = DownloadConditions.Builder().build()
-        val total = supportedLanguages.size
-        var completed = 0
-        val failedLanguages = mutableListOf<String>()
+                val modelManager = RemoteModelManager.getInstance()
+                val conditions = DownloadConditions.Builder().build()
+                val total = supportedLanguages.size
+                val completed = java.util.concurrent.atomic.AtomicInteger(0)
+                val semaphore = Semaphore(3)
 
-        for (lang in supportedLanguages) {
-            onProgress(completed, total, lang)
-            val model = TranslateRemoteModel.Builder(lang).build()
-            var downloaded = false
-            try {
-                if (modelManager.isModelDownloaded(model).awaitTask() == true) {
-                    downloaded = true
-                }
-            } catch (e: Exception) {
-                Log.w("TranslatorEngine", "Error checking if $lang is downloaded: ${e.message}")
-            }
+                val jobs =
+                    supportedLanguages.map { lang ->
+                        async {
+                            semaphore.withPermit {
+                                val model = TranslateRemoteModel.Builder(lang).build()
+                                var downloaded = false
+                                try {
+                                    if (modelManager.isModelDownloaded(model).awaitTask() == true) {
+                                        downloaded = true
+                                    }
+                                } catch (_: Exception) {}
 
-            if (!downloaded) {
-                var attempts = 0
-                while (!downloaded && attempts < 2) {
-                    attempts++
-                    try {
-                        modelManager.download(model, conditions).awaitTask()
-                        downloaded = true
-                        Log.d("TranslatorEngine", "Successfully downloaded ML Kit model for $lang")
-                    } catch (e: Exception) {
-                        Log.w("TranslatorEngine", "Attempt $attempts failed for $lang: ${e.message}")
-                        if (attempts < 2) {
-                            kotlinx.coroutines.delay(500)
+                                if (!downloaded) {
+                                    var attempts = 0
+                                    while (!downloaded && attempts < 2) {
+                                        attempts++
+                                        try {
+                                            modelManager.download(model, conditions).awaitTask()
+                                            downloaded = true
+                                            downloadedModels[lang] = true
+                                            Log.d("TranslatorEngine", "Downloaded ML Kit model for $lang")
+                                        } catch (e: Exception) {
+                                            Log.w("TranslatorEngine", "Attempt $attempts failed for $lang: ${e.message}")
+                                            if (attempts < 2) delay(300)
+                                        }
+                                    }
+                                } else {
+                                    downloadedModels[lang] = true
+                                }
+
+                                val count = completed.incrementAndGet()
+                                onProgress(count, total, lang)
+                                downloaded
+                            }
                         }
                     }
-                }
-            }
 
-            if (!downloaded) {
-                failedLanguages.add(lang)
-                Log.e("TranslatorEngine", "Failed to download model for $lang after retries")
+                val results = jobs.map { it.await() }
+                val englishDownloaded = downloadedModels[TranslateLanguage.ENGLISH] == true
+                val hindiDownloaded = downloadedModels[TranslateLanguage.HINDI] == true
+
+                englishDownloaded || hindiDownloaded || results.any { it }
             }
-            completed++
-            onProgress(completed, total, lang)
         }
-
-        val englishDownloaded =
-            try {
-                modelManager.isModelDownloaded(TranslateRemoteModel.Builder(TranslateLanguage.ENGLISH).build()).awaitTask() == true
-            } catch (_: Exception) {
-                false
-            }
-        val hindiDownloaded =
-            try {
-                modelManager.isModelDownloaded(TranslateRemoteModel.Builder(TranslateLanguage.HINDI).build()).awaitTask() == true
-            } catch (_: Exception) {
-                false
-            }
-
-        return englishDownloaded || hindiDownloaded || failedLanguages.size < total
-    }
 }

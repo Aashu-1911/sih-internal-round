@@ -118,13 +118,21 @@ class AndroidTtsEngine(
     override fun isLanguageAvailable(language: TtsLanguage): TtsLanguageCapability {
         if (!isReady || tts == null) return TtsLanguageCapability.Error("TTS Engine not ready")
 
-        val result = tts?.isLanguageAvailable(language.locale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+        var result = tts?.isLanguageAvailable(language.locale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+        if (result == TextToSpeech.LANG_NOT_SUPPORTED || result == TextToSpeech.LANG_MISSING_DATA) {
+            result = tts?.isLanguageAvailable(java.util.Locale(language.locale.language)) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            if ((result == TextToSpeech.LANG_NOT_SUPPORTED || result == TextToSpeech.LANG_MISSING_DATA) && language.locale.language == "en") {
+                result = tts?.isLanguageAvailable(java.util.Locale.US) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            }
+        }
         val engineName = tts?.defaultEngine ?: "Unknown"
 
         return when (result) {
             TextToSpeech.LANG_AVAILABLE, TextToSpeech.LANG_COUNTRY_AVAILABLE, TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> {
                 // Determine voice if possible
-                val voice = tts?.voices?.firstOrNull { it.locale == language.locale }
+                val voice = tts?.voices?.firstOrNull { 
+                    it.locale == language.locale || it.locale.language == language.locale.language 
+                }
                 TtsLanguageCapability.Supported(engineName, voice?.name)
             }
 
@@ -150,12 +158,22 @@ class AndroidTtsEngine(
 
             val capability = isLanguageAvailable(request.language)
             try {
-                val setRes = tts?.setLanguage(request.language.locale)
+                val locale = request.language.locale
+                var setRes = tts?.setLanguage(locale)
                 if (setRes == TextToSpeech.LANG_MISSING_DATA || setRes == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    android.util.Log.w("AndroidTtsEngine", "Language ${request.language.displayName} warning ($setRes), using default")
+                    val genericLocale = java.util.Locale(locale.language)
+                    setRes = tts?.setLanguage(genericLocale)
+                    if ((setRes == TextToSpeech.LANG_MISSING_DATA || setRes == TextToSpeech.LANG_NOT_SUPPORTED) && locale.language == "en") {
+                        tts?.setLanguage(java.util.Locale.US)
+                    }
                 }
+                val audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+                tts?.setAudioAttributes(audioAttributes)
             } catch (e: Exception) {
-                android.util.Log.w("AndroidTtsEngine", "Failed setting TTS language: ${e.message}")
+                android.util.Log.w("AndroidTtsEngine", "Failed setting TTS language/attributes: ${e.message}")
             }
 
             val utteranceId = request.utteranceId ?: request.requestId
@@ -198,7 +216,15 @@ class AndroidTtsEngine(
 
             val capability = isLanguageAvailable(request.language)
             try {
-                tts?.setLanguage(request.language.locale)
+                val locale = request.language.locale
+                var setRes = tts?.setLanguage(locale)
+                if (setRes == TextToSpeech.LANG_MISSING_DATA || setRes == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    val genericLocale = java.util.Locale(locale.language)
+                    setRes = tts?.setLanguage(genericLocale)
+                    if ((setRes == TextToSpeech.LANG_MISSING_DATA || setRes == TextToSpeech.LANG_NOT_SUPPORTED) && locale.language == "en") {
+                        tts?.setLanguage(java.util.Locale.US)
+                    }
+                }
             } catch (e: Exception) {
                 android.util.Log.w("AndroidTtsEngine", "Failed setting TTS language: ${e.message}")
             }

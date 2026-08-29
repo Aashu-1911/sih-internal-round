@@ -3,6 +3,8 @@ package app.swarsetu.stt
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -131,8 +133,8 @@ class SttModelManager(
         }
 
     /**
-     * Downloads and extracts the Vosk STT model for [language] into [context.filesDir]/stt/<assetDir>.
-     * Returns true on success, false on network or extraction failure.
+     * Downloads and extracts the Vosk STT model for [language] directly into [context.filesDir]/stt/<assetDir>.
+     * Uses streaming decompression directly from the network connection with zero temporary disk file bloat.
      */
     suspend fun downloadSttModel(
         language: SttLanguage,
@@ -147,13 +149,22 @@ class SttModelManager(
                 return@withContext true
             }
 
+            // Check if a canonical model with the same base exists locally to alias instantly
+            val canonicalBaseLang = CANONICAL_ALIASES[language]
+            if (canonicalBaseLang != null && canonicalBaseLang != language && modelFilesExist(canonicalBaseLang)) {
+                val sourceDir = java.io.File(context.filesDir, "stt/${canonicalBaseLang.assetDir}")
+                if (cloneModelDir(sourceDir, targetDir)) {
+                    Log.d(TAG, "Instantly aliased STT model for ${language.code} from ${canonicalBaseLang.code}")
+                    onProgress?.invoke(1f)
+                    return@withContext true
+                }
+            }
+
             val urlString = MODEL_URLS[language] ?: return@withContext false
-            Log.d(TAG, "Downloading STT model for ${language.code} from $urlString")
+            Log.d(TAG, "Stream-downloading STT model for ${language.code} from $urlString")
 
             var connection: java.net.HttpURLConnection? = null
-            var tempZip: java.io.File? = null
             try {
-                tempZip = java.io.File(context.cacheDir, "stt_${language.code}_temp.zip")
                 val url = java.net.URL(urlString)
                 connection = url.openConnection() as java.net.HttpURLConnection
                 connection.instanceFollowRedirects = true
@@ -168,62 +179,95 @@ class SttModelManager(
                 }
 
                 val totalLength = connection.contentLength.toLong()
-                var downloaded = 0L
+                targetDir.mkdirs()
 
-                connection.inputStream.use { input ->
-                    tempZip.outputStream().use { output ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloaded += bytesRead
-                            if (totalLength > 0) {
-                                onProgress?.invoke((downloaded.toFloat() / totalLength).coerceIn(0f, 0.9f))
+                // Direct streaming extraction: Zero temp zip file written to disk
+                var bytesReadTotal = 0L
+                java.io.BufferedInputStream(connection.inputStream, 64 * 1024).use { bis ->
+                    val countingStream = object : java.io.FilterInputStream(bis) {
+                        override fun read(): Int {
+                            val b = super.read()
+                            if (b != -1) {
+                                bytesReadTotal++
+                                if (totalLength > 0 && bytesReadTotal % (128 * 1024) == 0L) {
+                                    onProgress?.invoke((bytesReadTotal.toFloat() / totalLength).coerceIn(0f, 0.95f))
+                                }
                             }
+                            return b
+                        }
+
+                        override fun read(b: ByteArray, off: Int, len: Int): Int {
+                            val read = super.read(b, off, len)
+                            if (read > 0) {
+                                bytesReadTotal += read
+                                if (totalLength > 0) {
+                                    onProgress?.invoke((bytesReadTotal.toFloat() / totalLength).coerceIn(0f, 0.95f))
+                                }
+                            }
+                            return read
+                        }
+                    }
+
+                    java.util.zip.ZipInputStream(countingStream).use { zis ->
+                        var entry: java.util.zip.ZipEntry? = zis.nextEntry
+                        val buffer = ByteArray(32 * 1024)
+                        while (entry != null) {
+                            val normalizedPath = stripTopLevelDir(entry.name)
+                            if (normalizedPath.isNotBlank()) {
+                                val target = java.io.File(targetDir, normalizedPath)
+                                if (entry.isDirectory) {
+                                    target.mkdirs()
+                                } else {
+                                    target.parentFile?.mkdirs()
+                                    target.outputStream().use { fos ->
+                                        var count: Int
+                                        while (zis.read(buffer).also { count = it } != -1) {
+                                            fos.write(buffer, 0, count)
+                                        }
+                                    }
+                                }
+                            }
+                            zis.closeEntry()
+                            entry = zis.nextEntry
                         }
                     }
                 }
 
-                Log.d(TAG, "Downloaded STT model zip for ${language.code} ($downloaded bytes). Extracting...")
-                targetDir.mkdirs()
+                // Propagate to any other languages aliased to this one
+                populateAliasesFrom(language, targetDir)
 
-                // Extract zip into targetDir
-                unzipToDir(tempZip, targetDir)
                 onProgress?.invoke(1f)
-                Log.d(TAG, "Extracted STT model for ${language.code} into ${targetDir.absolutePath}")
+                Log.d(TAG, "Stream-extracted STT model for ${language.code} directly into ${targetDir.absolutePath}")
                 true
             } catch (e: Exception) {
                 Log.e(TAG, "Error downloading/extracting STT model for ${language.code}: ${e.message}", e)
+                targetDir.deleteRecursively()
                 false
             } finally {
                 connection?.disconnect()
-                tempZip?.delete()
             }
         }
 
-    private fun unzipToDir(zipFile: java.io.File, destDir: java.io.File) {
-        destDir.mkdirs()
-        java.util.zip.ZipInputStream(zipFile.inputStream().buffered()).use { zis ->
-            var entry: java.util.zip.ZipEntry? = zis.nextEntry
-            while (entry != null) {
-                val entryName = entry.name
-                val normalizedPath = stripTopLevelDir(entryName)
-                if (normalizedPath.isNotBlank()) {
-                    val target = java.io.File(destDir, normalizedPath)
-                    if (entry.isDirectory) {
-                        target.mkdirs()
-                    } else {
-                        target.parentFile?.mkdirs()
-                        target.outputStream().use { fos ->
-                            zis.copyTo(fos)
-                        }
-                    }
-                }
-                zis.closeEntry()
-                entry = zis.nextEntry
+    private fun populateAliasesFrom(sourceLang: SttLanguage, sourceDir: java.io.File) {
+        for ((targetLang, canonicalBase) in CANONICAL_ALIASES) {
+            if (canonicalBase == sourceLang && targetLang != sourceLang && !modelFilesExist(targetLang)) {
+                val destDir = java.io.File(context.filesDir, "stt/${targetLang.assetDir}")
+                cloneModelDir(sourceDir, destDir)
             }
         }
     }
+
+    private fun cloneModelDir(sourceDir: java.io.File, destDir: java.io.File): Boolean =
+        try {
+            if (!sourceDir.exists() || sourceDir.list().isNullOrEmpty()) false
+            else {
+                destDir.mkdirs()
+                sourceDir.copyRecursively(destDir, overwrite = true)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
 
     private fun stripTopLevelDir(path: String): String {
         val slashIndex = path.indexOf('/')
@@ -236,8 +280,59 @@ class SttModelManager(
         }
     }
 
+    /**
+     * Downloads all offline speech recognition models using lightweight deduplication and parallel workers.
+     */
+    suspend fun downloadAllRequiredModels(onProgress: (Int, Int, SttLanguage) -> Unit): Boolean =
+        withContext(Dispatchers.IO) {
+            coroutineScope {
+                val allLanguages = SttLanguage.entries
+                val total = allLanguages.size
+                val completedCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+                // 1. Download unique distinct canonical models in parallel
+                val distinctCanonicalLanguages = CANONICAL_ALIASES.values.distinct()
+                val jobs =
+                    distinctCanonicalLanguages.map { lang ->
+                        async {
+                            onProgress(completedCount.get(), total, lang)
+                            val success = downloadSttModel(lang)
+                            completedCount.incrementAndGet()
+                            onProgress(completedCount.get(), total, lang)
+                            success
+                        }
+                    }
+
+                val results = jobs.map { it.await() }
+
+                // 2. Quickly clone/alias remaining Indic languages
+                for (lang in allLanguages) {
+                    if (!modelFilesExist(lang)) {
+                        downloadSttModel(lang)
+                    }
+                }
+
+                onProgress(total, total, SttLanguage.ENGLISH)
+                results.all { it }
+            }
+        }
+
     private companion object {
         const val TAG = "SttModelManager"
+
+        private val CANONICAL_ALIASES =
+            mapOf(
+                SttLanguage.ENGLISH to SttLanguage.ENGLISH,
+                SttLanguage.HINDI to SttLanguage.HINDI,
+                SttLanguage.GUJARATI to SttLanguage.GUJARATI,
+                SttLanguage.MARATHI to SttLanguage.MARATHI,
+                SttLanguage.BENGALI to SttLanguage.BENGALI,
+                SttLanguage.TAMIL to SttLanguage.TAMIL,
+                SttLanguage.TELUGU to SttLanguage.TELUGU,
+                SttLanguage.KANNADA to SttLanguage.HINDI,
+                SttLanguage.MALAYALAM to SttLanguage.HINDI,
+                SttLanguage.ODIA to SttLanguage.HINDI,
+            )
 
         private val MODEL_URLS =
             mapOf(
@@ -248,6 +343,9 @@ class SttModelManager(
                 SttLanguage.BENGALI to "https://alphacephei.com/vosk/models/vosk-model-small-bn-0.22.zip",
                 SttLanguage.TAMIL to "https://alphacephei.com/vosk/models/vosk-model-small-ta-0.22.zip",
                 SttLanguage.TELUGU to "https://alphacephei.com/vosk/models/vosk-model-small-te-0.42.zip",
+                SttLanguage.KANNADA to "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip",
+                SttLanguage.MALAYALAM to "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip",
+                SttLanguage.ODIA to "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip",
             )
     }
 }

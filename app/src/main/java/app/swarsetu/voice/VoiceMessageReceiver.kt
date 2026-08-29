@@ -28,9 +28,9 @@ class VoiceMessageReceiver(
     fun onVoiceMessageReceived(entity: MessageEntity): Job {
         val t4 = System.currentTimeMillis()
         
-        if (entity.messageType != MessageEntity.TYPE_TRANSLATED_VOICE) {
-            return scope.launch { }
-        }
+        val isVoice = entity.messageType == MessageEntity.TYPE_TRANSLATED_VOICE ||
+            entity.messageType == MessageEntity.TYPE_VOICE_NOTE ||
+            entity.sourceText != null
 
         return scope.launch {
             // Determine the receiving user's preferred language.
@@ -38,7 +38,7 @@ class VoiceMessageReceiver(
             val normalizedPreferred = translatorEngine.normalizeToLanguageTag(preferredLanguageString) ?: preferredLanguageString
 
             var textToSpeak = entity.translatedText ?: entity.body
-            var languageToSpeak = entity.targetLanguage ?: entity.sourceLanguage ?: "en"
+            var languageToSpeak = entity.targetLanguage ?: entity.sourceLanguage ?: preferredLanguageString
             val normalizedTarget = translatorEngine.normalizeToLanguageTag(languageToSpeak) ?: languageToSpeak
 
             // If the message has not been translated to receiver's preferred language, translate now
@@ -67,21 +67,24 @@ class VoiceMessageReceiver(
                 }
             }
 
-            val finalLanguage = parseLanguage(languageToSpeak)
-            android.util.Log.d("VoiceMessageReceiver", "TTS playing inbound voice message ${entity.id} in $finalLanguage: \"$textToSpeak\"")
+            // Only speak aloud automatically if it was sent as a voice message/note
+            if (isVoice) {
+                val finalLanguage = parseLanguage(languageToSpeak)
+                android.util.Log.d("VoiceMessageReceiver", "Auto-playing inbound voice message ${entity.id} in $finalLanguage: \"$textToSpeak\"")
 
-            val request =
-                TtsRequest(
-                    requestId = entity.id,
-                    text = textToSpeak,
-                    language = finalLanguage,
-                    priority = if (entity.isAlert) TtsPriority.ALERT else TtsPriority.NORMAL,
-                )
+                val request =
+                    TtsRequest(
+                        requestId = entity.id,
+                        text = textToSpeak,
+                        language = finalLanguage,
+                        priority = TtsPriority.ALERT,
+                    )
 
-            val t5 = System.currentTimeMillis()
-            voiceController.reportInboundMessageMetrics(entity.id, t4, t5)
+                val t5 = System.currentTimeMillis()
+                voiceController.reportInboundMessageMetrics(entity.id, t4, t5)
 
-            ttsManager.speak(request)
+                ttsManager.speak(request)
+            }
         }
     }
 

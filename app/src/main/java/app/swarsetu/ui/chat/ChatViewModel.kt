@@ -219,6 +219,7 @@ class ChatViewModel(
     private val voiceMessageAdapter: app.swarsetu.voice.VoiceMessageAdapter,
     private val voiceController: app.swarsetu.voice.VoiceConversationController,
     private val sttPipeline: SttPipeline,
+    private val translatorEngine: app.swarsetu.translation.TranslatorEngine,
 ) : ViewModel() {
     private val isRoom = conversationId == Conversations.NEARBY
 
@@ -249,7 +250,7 @@ class ChatViewModel(
     val selectedSttLanguage: StateFlow<SttLanguage> =
         settings.sttLanguageCode
             .map { code -> SttLanguage.fromCode(code) ?: SttLanguage.HINDI }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SttLanguage.HINDI)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, SttLanguage.HINDI)
 
     // Built lazily so a chat that never records never opens a recorder, and torn down in onCleared: the
     // microphone is exclusive, and leaking it would block every other app until this process died.
@@ -514,10 +515,31 @@ class ChatViewModel(
         if (_isSending.value) return
         _isSending.value = true
         viewModelScope.launch {
-            var accepted = false
             try {
                 val outgoingReply = normalizeSelfAuthor(replyTo)
                 val group = if (isRoom) null else groups.find(conversationId)
+
+                val myLang = settings.sttLanguageCode.first().lowercase()
+                var sourceLang: String? = myLang
+                var targetLang: String? = null
+                var translatedText: String? = null
+
+                if (!isRoom && group == null) {
+                    val peer = peers.find(conversationId)
+                    val peerLang = peer?.preferredLanguage?.lowercase()
+                    if (peerLang != null) {
+                        val normMy = translatorEngine.normalizeToLanguageTag(myLang) ?: myLang
+                        val normPeer = translatorEngine.normalizeToLanguageTag(peerLang) ?: peerLang
+                        if (normMy != normPeer && trimmed.isNotBlank()) {
+                            targetLang = normPeer
+                            sourceLang = normMy
+                            val res = translatorEngine.translate(trimmed, normMy, normPeer)
+                            if (res.isNotBlank() && res != trimmed) {
+                                translatedText = res
+                            }
+                        }
+                    }
+                }
 
                 val sent =
                     if (group != null) {
@@ -529,6 +551,10 @@ class ChatViewModel(
                             group = group.toGroupInfo(),
                             replyTo = outgoingReply,
                             messageType = MessageEntity.TYPE_NORMAL_TEXT,
+                            sourceLanguage = sourceLang,
+                            targetLanguage = targetLang,
+                            sourceText = trimmed,
+                            translatedText = translatedText,
                         )
                     } else {
                         val recipientId = if (isRoom) null else conversationId
@@ -539,17 +565,20 @@ class ChatViewModel(
                             recipientId = recipientId,
                             replyTo = outgoingReply,
                             messageType = MessageEntity.TYPE_NORMAL_TEXT,
+                            sourceLanguage = sourceLang,
+                            targetLanguage = targetLang,
+                            sourceText = trimmed,
+                            translatedText = translatedText,
                         )
                     }
                 if (sent) {
-                    accepted = true
                     _pendingAttachment.value = null
                     _clearInput.tryEmit(Unit)
                 } else {
                     _events.tryEmit(R.string.moderation_text_blocked)
                 }
             } finally {
-                if (!accepted) _isSending.value = false
+                _isSending.value = false
             }
         }
     }

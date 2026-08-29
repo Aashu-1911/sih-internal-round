@@ -58,10 +58,13 @@ enum class SttLanguage(
          */
         fun fromCode(code: String?): SttLanguage? {
             if (code.isNullOrBlank()) return null
+            val clean = code.trim().lowercase().split("-", "_").first()
             return entries.firstOrNull {
-                it.code.equals(code, ignoreCase = true) ||
-                    it.name.equals(code, ignoreCase = true) ||
-                    it.displayName.equals(code, ignoreCase = true)
+                it.code.equals(code.trim(), ignoreCase = true) ||
+                    it.code.equals(clean, ignoreCase = true) ||
+                    it.name.equals(code.trim(), ignoreCase = true) ||
+                    it.name.equals(clean, ignoreCase = true) ||
+                    it.displayName.equals(code.trim(), ignoreCase = true)
             }
         }
     }

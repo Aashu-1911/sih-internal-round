@@ -41,10 +41,11 @@ val uiModule =
                 get(),
                 get<RelayStatusRepository>().facts,
                 androidContext(),
-                get(),
-                get(),
-                get(),
-                get(), // sttPipeline: SttPipeline
+                get(), // ttsManager
+                get(), // voiceMessageAdapter
+                get(), // voiceController
+                get(), // sttPipeline
+                get(), // translatorEngine
             )
         }
         viewModel {

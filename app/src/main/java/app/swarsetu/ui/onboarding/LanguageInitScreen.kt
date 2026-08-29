@@ -62,21 +62,21 @@ fun LanguageInitScreen(
         errorMessage = ""
         scope.launch {
             try {
+                val translationCount = 8
+                val speechCount = SttLanguage.entries.size
+                totalModels = translationCount + speechCount
+
                 downloadStage = stageTranslation
                 translatorEngine.downloadAllRequiredModels { completed, total, currentLang ->
                     currentDownloading = "Translation: $currentLang"
                     completedModels = completed
-                    totalModels = total + 2
                 }
 
                 downloadStage = stageSpeech
-                currentDownloading = speechEn
-                sttModelManager.downloadSttModel(SttLanguage.ENGLISH)
-                completedModels++
-
-                currentDownloading = speechHi
-                sttModelManager.downloadSttModel(SttLanguage.HINDI)
-                completedModels++
+                sttModelManager.downloadAllRequiredModels { completed, total, currentLang ->
+                    currentDownloading = "Speech Model: ${currentLang.displayName}"
+                    completedModels = translationCount + completed
+                }
 
                 settingsStore.setLanguageInitComplete(true)
                 onInitializationComplete()
@@ -146,8 +146,9 @@ fun LanguageInitScreen(
             LinearProgressIndicator(progress = { progress })
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "$downloadStage ($completedModels of $totalModels)...",
+                text = "$downloadStage ($completedModels of $totalModels total)...",
                 style = MaterialTheme.typography.titleMedium,
+                textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(4.dp))
             if (currentDownloading.isNotBlank()) {
@@ -155,6 +156,7 @@ fun LanguageInitScreen(
                     text = currentDownloading,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
                 )
             }
             Spacer(modifier = Modifier.height(24.dp))

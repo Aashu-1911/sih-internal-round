@@ -1732,7 +1732,7 @@ class InboundPipeline(
 
         persist(entity)
 
-        if (entity.messageType == MessageEntity.TYPE_TRANSLATED_VOICE && entity.senderId != identity.nodeId()) {
+        if (entity.senderId != identity.nodeId()) {
             voiceMessageReceiver?.onVoiceMessageReceived(entity)
         }
         // Start pulling the referenced blob unless we already hold it (the UI observes the blobs table
