@@ -34,7 +34,6 @@ import kotlinx.coroutines.withContext
 class SttBenchmark(
     private val engine: SttEngine,
 ) {
-
     data class BenchmarkResult(
         val language: SttLanguage,
         val modelInitMs: Long,
@@ -47,22 +46,26 @@ class SttBenchmark(
         val emptyResults: Int,
     ) {
         val accuracy: Double
-            get() = if (totalInferences > 0) {
-                successfulInferences.toDouble() / totalInferences
-            } else 0.0
+            get() =
+                if (totalInferences > 0) {
+                    successfulInferences.toDouble() / totalInferences
+                } else {
+                    0.0
+                }
 
-        fun toSummary(): String = buildString {
-            appendLine("=== STT Benchmark: ${language.displayName} (${language.code}) ===")
-            appendLine("Model init:       ${modelInitMs}ms")
-            appendLine("First inference:  ${firstInferenceMs}ms")
-            appendLine("Avg inference:    ${avgInferenceMs}ms")
-            appendLine("Real-time factor: %.3f".format(realTimeFactor))
-            appendLine("Samples processed: $totalSamplesProcessed")
-            appendLine("Total inferences: $totalInferences")
-            appendLine("Successful:       $successfulInferences")
-            appendLine("Empty results:    $emptyResults")
-            appendLine("Non-empty rate:   %.1f%%".format(accuracy * 100))
-        }
+        fun toSummary(): String =
+            buildString {
+                appendLine("=== STT Benchmark: ${language.displayName} (${language.code}) ===")
+                appendLine("Model init:       ${modelInitMs}ms")
+                appendLine("First inference:  ${firstInferenceMs}ms")
+                appendLine("Avg inference:    ${avgInferenceMs}ms")
+                appendLine("Real-time factor: %.3f".format(realTimeFactor))
+                appendLine("Samples processed: $totalSamplesProcessed")
+                appendLine("Total inferences: $totalInferences")
+                appendLine("Successful:       $successfulInferences")
+                appendLine("Empty results:    $emptyResults")
+                appendLine("Non-empty rate:   %.1f%%".format(accuracy * 100))
+            }
     }
 
     /**
@@ -79,85 +82,88 @@ class SttBenchmark(
         warmupRuns: Int = 2,
         measurementRuns: Int = 5,
         samplesPerRun: Int = SttLanguage.SAMPLE_RATE, // 1 second
-    ): BenchmarkResult = withContext(Dispatchers.Default) {
-        Log.d(TAG, "Starting benchmark for ${language.code}")
+    ): BenchmarkResult =
+        withContext(Dispatchers.Default) {
+            Log.d(TAG, "Starting benchmark for ${language.code}")
 
-        // 1. Model initialization time
-        val initStart = System.currentTimeMillis()
-        try {
-            engine.initialize(SttConfig(language = language))
-        } catch (e: Exception) {
-            Log.e(TAG, "Init failed for ${language.code}: ${e.message}")
-            return@withContext BenchmarkResult(
-                language = language,
-                modelInitMs = System.currentTimeMillis() - initStart,
-                firstInferenceMs = -1,
-                avgInferenceMs = -1,
-                realTimeFactor = -1.0,
-                totalSamplesProcessed = 0,
-                totalInferences = 0,
-                successfulInferences = 0,
-                emptyResults = 0,
-            )
+            // 1. Model initialization time
+            val initStart = System.currentTimeMillis()
+            try {
+                engine.initialize(SttConfig(language = language))
+            } catch (e: Exception) {
+                Log.e(TAG, "Init failed for ${language.code}: ${e.message}")
+                return@withContext BenchmarkResult(
+                    language = language,
+                    modelInitMs = System.currentTimeMillis() - initStart,
+                    firstInferenceMs = -1,
+                    avgInferenceMs = -1,
+                    realTimeFactor = -1.0,
+                    totalSamplesProcessed = 0,
+                    totalInferences = 0,
+                    successfulInferences = 0,
+                    emptyResults = 0,
+                )
+            }
+            val initMs = System.currentTimeMillis() - initStart
+
+            // Generate synthetic PCM (440 Hz sine wave, ~speech amplitude)
+            val pcm = generateTestPcm(samplesPerRun, frequency = 440, amplitude = 5000)
+
+            // 2. Warm-up runs
+            var firstInferenceMs = -1L
+            for (i in 0 until warmupRuns) {
+                val start = System.currentTimeMillis()
+                engine.transcribe(pcm, language)
+                val elapsed = System.currentTimeMillis() - start
+                if (i == 0) firstInferenceMs = elapsed
+            }
+
+            // 3. Measurement runs
+            val inferenceTimes = mutableListOf<Long>()
+            var successful = 0
+            var empty = 0
+
+            for (i in 0 until measurementRuns) {
+                val start = System.currentTimeMillis()
+                val result = engine.transcribe(pcm, language)
+                val elapsed = System.currentTimeMillis() - start
+
+                inferenceTimes.add(elapsed)
+                if (result.text.isNotBlank()) successful++ else empty++
+            }
+
+            val avgMs =
+                if (inferenceTimes.isNotEmpty()) {
+                    inferenceTimes.average().toLong()
+                } else {
+                    0
+                }
+
+            // Real-time factor: processing time / audio duration
+            val audioDurationMs = samplesPerRun * 1000L / language.sampleRate
+            val rtf = if (audioDurationMs > 0) avgMs.toDouble() / audioDurationMs else 0.0
+
+            val result =
+                BenchmarkResult(
+                    language = language,
+                    modelInitMs = initMs,
+                    firstInferenceMs = firstInferenceMs,
+                    avgInferenceMs = avgMs,
+                    realTimeFactor = rtf,
+                    totalSamplesProcessed = samplesPerRun * (warmupRuns + measurementRuns),
+                    totalInferences = warmupRuns + measurementRuns,
+                    successfulInferences = successful,
+                    emptyResults = empty,
+                )
+
+            Log.d(TAG, "Benchmark complete for ${language.code}: avg=${avgMs}ms, RTF=${"%.3f".format(rtf)}")
+            result
         }
-        val initMs = System.currentTimeMillis() - initStart
-
-        // Generate synthetic PCM (440 Hz sine wave, ~speech amplitude)
-        val pcm = generateTestPcm(samplesPerRun, frequency = 440, amplitude = 5000)
-
-        // 2. Warm-up runs
-        var firstInferenceMs = -1L
-        for (i in 0 until warmupRuns) {
-            val start = System.currentTimeMillis()
-            engine.transcribe(pcm, language)
-            val elapsed = System.currentTimeMillis() - start
-            if (i == 0) firstInferenceMs = elapsed
-        }
-
-        // 3. Measurement runs
-        val inferenceTimes = mutableListOf<Long>()
-        var successful = 0
-        var empty = 0
-
-        for (i in 0 until measurementRuns) {
-            val start = System.currentTimeMillis()
-            val result = engine.transcribe(pcm, language)
-            val elapsed = System.currentTimeMillis() - start
-
-            inferenceTimes.add(elapsed)
-            if (result.text.isNotBlank()) successful++ else empty++
-        }
-
-        val avgMs = if (inferenceTimes.isNotEmpty()) {
-            inferenceTimes.average().toLong()
-        } else 0
-
-        // Real-time factor: processing time / audio duration
-        val audioDurationMs = samplesPerRun * 1000L / language.sampleRate
-        val rtf = if (audioDurationMs > 0) avgMs.toDouble() / audioDurationMs else 0.0
-
-        val result = BenchmarkResult(
-            language = language,
-            modelInitMs = initMs,
-            firstInferenceMs = firstInferenceMs,
-            avgInferenceMs = avgMs,
-            realTimeFactor = rtf,
-            totalSamplesProcessed = samplesPerRun * (warmupRuns + measurementRuns),
-            totalInferences = warmupRuns + measurementRuns,
-            successfulInferences = successful,
-            emptyResults = empty,
-        )
-
-        Log.d(TAG, "Benchmark complete for ${language.code}: avg=${avgMs}ms, RTF=${"%.3f".format(rtf)}")
-        result
-    }
 
     /**
      * Run benchmarks for all available languages and return a comparative report.
      */
-    suspend fun runFullBenchmark(
-        languages: Set<SttLanguage> = SttLanguage.supported,
-    ): List<BenchmarkResult> {
+    suspend fun runFullBenchmark(languages: Set<SttLanguage> = SttLanguage.supported): List<BenchmarkResult> {
         val results = mutableListOf<BenchmarkResult>()
         for (lang in languages) {
             val result = runBenchmark(lang)
@@ -180,13 +186,12 @@ class SttBenchmark(
         samples: Int,
         frequency: Int = 440,
         amplitude: Int = 5000,
-    ): ShortArray {
-        return ShortArray(samples) { i ->
+    ): ShortArray =
+        ShortArray(samples) { i ->
             val t = i.toDouble() / SttLanguage.SAMPLE_RATE
             val value = (amplitude * kotlin.math.sin(2.0 * Math.PI * frequency * t)).toInt()
             value.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
-    }
 
     private companion object {
         const val TAG = "SttBenchmark"

@@ -5,7 +5,6 @@ import org.junit.Test
 
 /** Unit tests for [VoiceActivityDetector] — energy-based VAD. */
 class VoiceActivityDetectorTest {
-
     @Test
     fun `starts in silent state`() {
         val vad = VoiceActivityDetector()
@@ -82,12 +81,13 @@ class VoiceActivityDetectorTest {
 
     @Test
     fun `custom thresholds work`() {
-        val vad = VoiceActivityDetector(
-            silenceThreshold = 100,
-            speechThreshold = 200,
-            speechFrames = 2,
-            silenceFrames = 2,
-        )
+        val vad =
+            VoiceActivityDetector(
+                silenceThreshold = 100,
+                speechThreshold = 200,
+                speechFrames = 2,
+                silenceFrames = 2,
+            )
         val speech = ShortArray(480) { 300 } // Above custom speech threshold
 
         vad.processFrame(speech)

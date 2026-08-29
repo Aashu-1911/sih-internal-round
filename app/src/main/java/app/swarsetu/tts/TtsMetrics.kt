@@ -9,8 +9,6 @@ data class TtsMetrics(
     val language: TtsLanguage,
     val voiceName: String?,
     val textLength: Int,
-
-    // Latency metrics
     /** Time when the synthesis officially began. */
     val synthesisBeginTimestampMs: Long? = null,
     /** Time to First Audio (TTFA): when the engine delivered the first synthesized audio chunk. */
@@ -19,32 +17,39 @@ data class TtsMetrics(
     val playbackStartTimestampMs: Long? = null,
     /** Time when the utterance successfully completed. */
     val completionTimestampMs: Long? = null,
-
-    // Durations
     /** Total length of the generated audio in milliseconds (if measurable). */
     val totalAudioDurationMs: Long? = null,
-    
-    // States
     val interrupted: Boolean = false,
     val error: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
 ) {
     /** Time-To-First-Audio (from synthesis begin). */
     val ttfaMs: Long?
-        get() = if (firstAudioChunkTimestampMs != null && synthesisBeginTimestampMs != null) {
-            firstAudioChunkTimestampMs - synthesisBeginTimestampMs
-        } else null
+        get() =
+            if (firstAudioChunkTimestampMs != null && synthesisBeginTimestampMs != null) {
+                firstAudioChunkTimestampMs - synthesisBeginTimestampMs
+            } else {
+                null
+            }
 
     /** Playback Start Latency (from synthesis begin). */
     val playbackStartLatencyMs: Long?
-        get() = if (playbackStartTimestampMs != null && synthesisBeginTimestampMs != null) {
-            playbackStartTimestampMs - synthesisBeginTimestampMs
-        } else null
+        get() =
+            if (playbackStartTimestampMs != null && synthesisBeginTimestampMs != null) {
+                playbackStartTimestampMs - synthesisBeginTimestampMs
+            } else {
+                null
+            }
 
     /** Real-Time Factor: Synthesis time / Audio duration. (Values < 1.0 mean faster than real-time). */
     val rtf: Float?
-        get() = if (completionTimestampMs != null && synthesisBeginTimestampMs != null && totalAudioDurationMs != null && totalAudioDurationMs > 0) {
-            val synthesisTime = completionTimestampMs - synthesisBeginTimestampMs
-            synthesisTime.toFloat() / totalAudioDurationMs.toFloat()
-        } else null
+        get() =
+            if (completionTimestampMs != null && synthesisBeginTimestampMs != null && totalAudioDurationMs != null &&
+                totalAudioDurationMs > 0
+            ) {
+                val synthesisTime = completionTimestampMs - synthesisBeginTimestampMs
+                synthesisTime.toFloat() / totalAudioDurationMs.toFloat()
+            } else {
+                null
+            }
 }

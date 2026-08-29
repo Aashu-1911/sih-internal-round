@@ -152,8 +152,14 @@ data class ChatContent(
     // DM/group the quote rides inside [enc] ([MessageContent.replyTo]) so it stays private, and this is
     // left null — mirroring how [body]/[mentions] are blank on an encrypted frame.
     val replyTo: ReplyRef? = null,
+    @Deprecated("Replaced by messageType and semantic translation fields")
     val voiceTextLanguage: String? = null,
     val isAlert: Boolean? = null,
+    val messageType: Int? = null,
+    val sourceLanguage: String? = null,
+    val targetLanguage: String? = null,
+    val sourceText: String? = null,
+    val translatedText: String? = null,
 )
 
 /**
@@ -186,6 +192,7 @@ data class ProfileContent(
     val capabilities: Long? = null,
     val prekey: PrekeyInfo? = null,
     val version: Long? = null,
+    val preferredLanguage: String? = null,
 )
 
 /** Content of a [FrameType.GROUP_LEAVE] frame: the group the (self-asserted) sender is leaving. */
@@ -492,6 +499,7 @@ data class ProfilePayload(
     val status: String,
     val avatarHash: String? = null,
     val version: Long = 0L,
+    val preferredLanguage: String? = null,
 )
 
 /**

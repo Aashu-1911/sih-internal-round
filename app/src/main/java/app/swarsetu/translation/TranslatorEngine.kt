@@ -1,0 +1,367 @@
+package app.swarsetu.translation
+
+import android.util.Log
+import com.google.android.gms.tasks.Task
+import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.common.model.RemoteModelManager
+import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.TranslateRemoteModel
+import com.google.mlkit.nl.translate.Translation
+import com.google.mlkit.nl.translate.Translator
+import com.google.mlkit.nl.translate.TranslatorOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+suspend fun <T> Task<T>.awaitTask(): T? =
+    suspendCancellableCoroutine { cont ->
+        addOnSuccessListener { result -> cont.resume(result) }
+        addOnFailureListener { exception -> cont.resumeWithException(exception) }
+        addOnCanceledListener { cont.cancel() }
+    }
+
+/**
+ * Handles on-device machine translation using Google ML Kit.
+ */
+class TranslatorEngine {
+    private val translatorCache = ConcurrentHashMap<String, Translator>()
+    private val downloadedModels = ConcurrentHashMap<String, Boolean>()
+
+    /**
+     * Normalizes language codes/names ("english", "en", "hindi", "hi") to standard ML Kit tags.
+     */
+    fun normalizeToLanguageTag(lang: String?): String? {
+        if (lang.isNullOrBlank()) return null
+        val clean = lang.trim().lowercase()
+        return when (clean) {
+            "en", "english", "en-in", "en-us" -> TranslateLanguage.ENGLISH
+            "hi", "hindi" -> TranslateLanguage.HINDI
+            "gu", "gujarati" -> TranslateLanguage.GUJARATI
+            "mr", "marathi" -> TranslateLanguage.MARATHI
+            "kn", "kannada" -> TranslateLanguage.KANNADA
+            "ta", "tamil" -> TranslateLanguage.TAMIL
+            "te", "telugu" -> TranslateLanguage.TELUGU
+            "bn", "bengali" -> TranslateLanguage.BENGALI
+            else -> TranslateLanguage.fromLanguageTag(clean)
+        }
+    }
+
+    private fun getOrCreateTranslator(
+        source: String,
+        target: String,
+    ): Translator {
+        val key = "$source->$target"
+        return translatorCache.computeIfAbsent(key) {
+            val options =
+                TranslatorOptions
+                    .Builder()
+                    .setSourceLanguage(source)
+                    .setTargetLanguage(target)
+                    .build()
+            Translation.getClient(options)
+        }
+    }
+
+    private val ENTITY_REGEX = Regex(
+        """(@\w+)|(https?://\S+)|(\b\d{3,}\b)|(\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b)|(\bSwarSetu\b)|(\biTantra\b)|(\bISRO\b)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val NAME_INTRODUCTION_PATTERNS = listOf(
+        Regex("""(?i)(?:मेरा\s+नाम|नाम\s+है)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:मैं|मै)\s+([^\s,।!?]+)\s+(?:हूँ|हु|हूं)"""),
+        Regex("""(?i)(?:મારું\s+નામ|મારુ\s+નામ)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:હું|હુ)\s+([^\s,।!?]+)\s+છું"""),
+        Regex("""(?i)(?:माझे\s+नाव|नाव\s+आहे)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:আমার\s+নাম)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:என்\s+பெயர்)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:నా\s+పేరు)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:ನನ್ನ\s+ಹೆಸರು)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:എന്റെ\s+പേര്)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:my\s+name\s+is|i\s+am|this\s+is)\s+([a-zA-Z]+)"""),
+    )
+
+    private data class MaskedText(
+        val text: String,
+        val replacements: Map<String, String>
+    )
+
+    private fun maskEntities(rawText: String, customProtectedNouns: List<String> = emptyList()): MaskedText {
+        val replacements = mutableMapOf<String, String>()
+        var counter = 0
+        var processed = rawText
+
+        val allNouns = customProtectedNouns.filter { it.isNotBlank() }.toMutableList()
+
+        // Extract names from conversational introduction patterns
+        for (pattern in NAME_INTRODUCTION_PATTERNS) {
+            val match = pattern.find(rawText)
+            if (match != null && match.groupValues.size > 1) {
+                val candidateName = match.groupValues[1].trim()
+                if (candidateName.length >= 2 && !allNouns.contains(candidateName)) {
+                    allNouns.add(candidateName)
+                }
+            }
+        }
+
+        // 1. Shield custom and dynamically extracted proper nouns
+        for (noun in allNouns.distinct()) {
+            val unicodeBoundaryRegex = Regex("""(?i)(?<=^|[\s\p{Punct}])${Regex.escape(noun)}(?=$|[\s\p{Punct}])""")
+            if (unicodeBoundaryRegex.containsMatchIn(processed)) {
+                val placeholder = "⟦P${counter}⟧"
+                val match = unicodeBoundaryRegex.find(processed)
+                if (match != null) {
+                    replacements[placeholder] = match.value
+                    processed = unicodeBoundaryRegex.replace(processed, placeholder)
+                    counter++
+                }
+            } else if (processed.contains(noun, ignoreCase = true)) {
+                val placeholder = "⟦P${counter}⟧"
+                replacements[placeholder] = noun
+                processed = processed.replace(noun, placeholder, ignoreCase = true)
+                counter++
+            }
+        }
+
+        // 2. Shield URLs, emails, mentions, numbers, and technical brand names
+        processed = ENTITY_REGEX.replace(processed) { matchResult ->
+            val placeholder = "⟦P${counter}⟧"
+            replacements[placeholder] = matchResult.value
+            counter++
+            placeholder
+        }
+
+        return MaskedText(processed, replacements)
+    }
+
+    private fun unmaskEntities(translatedText: String, replacements: Map<String, String>): String {
+        var result = translatedText
+        for ((placeholder, original) in replacements) {
+            val tokenKey = placeholder.removePrefix("⟦").removeSuffix("⟧")
+            val lenientRegex = Regex("""⟦\s*${Regex.escape(tokenKey)}\s*⟧|\[\s*${Regex.escape(tokenKey)}\s*\]|\(${Regex.escape(tokenKey)}\)""")
+            result = if (lenientRegex.containsMatchIn(result)) {
+                lenientRegex.replace(result, original)
+            } else {
+                result.replace(placeholder, original)
+            }
+        }
+        return result
+    }
+
+    private fun preprocessText(input: String, sourceLang: String = ""): String {
+        var trimmed = input.trim()
+        if (trimmed.isEmpty()) return trimmed
+        if (trimmed[0] in 'a'..'z') {
+            trimmed = trimmed.replaceFirstChar { it.uppercase() }
+        }
+        // Ensure sentence has terminal punctuation so neural model analyzes full grammar context
+        val lastChar = trimmed.last()
+        if (lastChar !in listOf('.', '?', '!', '।', ',', ';')) {
+            trimmed = if (sourceLang == TranslateLanguage.ENGLISH || sourceLang == "en") {
+                "$trimmed."
+            } else {
+                "$trimmed ।"
+            }
+        }
+        return trimmed
+    }
+
+    private fun postprocessText(input: String): String {
+        return input
+            .replace(Regex("""\s+([.,!?।])"""), "$1")
+            .replace(Regex("""\s{2,}"""), " ")
+            .trim()
+    }
+
+    private suspend fun translateDirect(
+        text: String,
+        source: String,
+        target: String,
+    ): String {
+        val translator = getOrCreateTranslator(source, target)
+        val conditions = DownloadConditions.Builder().build()
+        val modelManager = RemoteModelManager.getInstance()
+
+        if (downloadedModels[source] != true) {
+            val sourceModel = TranslateRemoteModel.Builder(source).build()
+            if (modelManager.isModelDownloaded(sourceModel).awaitTask() != true) {
+                modelManager.download(sourceModel, conditions).awaitTask()
+            }
+            downloadedModels[source] = true
+        }
+
+        if (downloadedModels[target] != true) {
+            val targetModel = TranslateRemoteModel.Builder(target).build()
+            if (modelManager.isModelDownloaded(targetModel).awaitTask() != true) {
+                modelManager.download(targetModel, conditions).awaitTask()
+            }
+            downloadedModels[target] = true
+        }
+
+        translator.downloadModelIfNeeded(conditions).awaitTask()
+        return translator.translate(text).awaitTask() ?: text
+    }
+
+    private suspend fun translateDirectOrPivot(
+        text: String,
+        source: String,
+        target: String,
+    ): String {
+        return if (source == TranslateLanguage.ENGLISH || target == TranslateLanguage.ENGLISH) {
+            translateDirect(text, source, target)
+        } else {
+            val englishIntermediate = translateDirect(text, source, TranslateLanguage.ENGLISH)
+            if (englishIntermediate.isNotBlank() && englishIntermediate != text) {
+                translateDirect(englishIntermediate, TranslateLanguage.ENGLISH, target)
+            } else {
+                translateDirect(text, source, target)
+            }
+        }
+    }
+
+    private suspend fun translatePassage(
+        passage: String,
+        source: String,
+        target: String,
+    ): String {
+        val sentences = passage.split(Regex("""(?<=[।?!.\n])\s+""")).filter { it.isNotBlank() }
+        if (sentences.size <= 1) {
+            return translateDirectOrPivot(passage, source, target)
+        }
+        val translatedSentences = sentences.map { sentence ->
+            translateDirectOrPivot(sentence.trim(), source, target)
+        }
+        return translatedSentences.joinToString(" ")
+    }
+
+    /**
+     * Translates text from [sourceLang] to [targetLang].
+     * Supports noun/entity preservation and English pivot translation between Indian language pairs.
+     */
+    suspend fun translate(
+        text: String,
+        sourceLang: String,
+        targetLang: String,
+    ): String = translate(text, sourceLang, targetLang, emptyList())
+
+    suspend fun translate(
+        text: String,
+        sourceLang: String,
+        targetLang: String,
+        protectedNouns: List<String> = emptyList(),
+    ): String {
+        if (text.isBlank()) return text
+        if (sourceLang == targetLang) return text
+
+        val source = normalizeToLanguageTag(sourceLang) ?: return text
+        val target = normalizeToLanguageTag(targetLang) ?: return text
+        if (source == target) return text
+
+        return try {
+            // 1. Mask proper nouns, mentions, URLs, numbers
+            val (masked, replacements) = maskEntities(text, protectedNouns)
+
+            // 2. Preprocess sentence structure
+            val preprocessed = preprocessText(masked, source)
+
+            // 3. Execute translation (Direct for English pairs; Pivot via English for Indic-to-Indic pairs)
+            val translated = translatePassage(preprocessed, source, target)
+
+            // 4. Restore preserved entities and clean up syntax
+            val unmasked = unmaskEntities(translated, replacements)
+            postprocessText(unmasked)
+        } catch (e: Exception) {
+            val cause = e.message?.lowercase() ?: ""
+            if (cause.contains("model") || cause.contains("download")) {
+                Log.w(
+                    "TranslatorEngine",
+                    "Translation failed: ML Kit model for " +
+                        "$sourceLang ($source)→$targetLang ($target) is not downloaded. Falling back to original text.",
+                    e,
+                )
+            } else {
+                Log.w("TranslatorEngine", "Translation failed for $sourceLang ($source)→$targetLang ($target): ${e.message}", e)
+            }
+            text
+        } finally {
+            // Translation cycle finished
+        }
+    }
+
+    /**
+     * Downloads all supported Indian language models in parallel batches for high-speed offline readiness.
+     */
+    suspend fun downloadAllRequiredModels(onProgress: (Int, Int, String) -> Unit): Boolean =
+        withContext(Dispatchers.IO) {
+            coroutineScope {
+                val supportedLanguages =
+                    listOf(
+                        TranslateLanguage.ENGLISH,
+                        TranslateLanguage.HINDI,
+                        TranslateLanguage.MARATHI,
+                        TranslateLanguage.GUJARATI,
+                        TranslateLanguage.TAMIL,
+                        TranslateLanguage.TELUGU,
+                        TranslateLanguage.BENGALI,
+                        TranslateLanguage.KANNADA,
+                    )
+
+                val modelManager = RemoteModelManager.getInstance()
+                val conditions = DownloadConditions.Builder().build()
+                val total = supportedLanguages.size
+                val completed = java.util.concurrent.atomic.AtomicInteger(0)
+                val semaphore = Semaphore(3)
+
+                val jobs =
+                    supportedLanguages.map { lang ->
+                        async {
+                            semaphore.withPermit {
+                                val model = TranslateRemoteModel.Builder(lang).build()
+                                var downloaded = false
+                                try {
+                                    if (modelManager.isModelDownloaded(model).awaitTask() == true) {
+                                        downloaded = true
+                                    }
+                                } catch (_: Exception) {}
+
+                                if (!downloaded) {
+                                    var attempts = 0
+                                    while (!downloaded && attempts < 2) {
+                                        attempts++
+                                        try {
+                                            modelManager.download(model, conditions).awaitTask()
+                                            downloaded = true
+                                            downloadedModels[lang] = true
+                                            Log.d("TranslatorEngine", "Downloaded ML Kit model for $lang")
+                                        } catch (e: Exception) {
+                                            Log.w("TranslatorEngine", "Attempt $attempts failed for $lang: ${e.message}")
+                                            if (attempts < 2) delay(300)
+                                        }
+                                    }
+                                } else {
+                                    downloadedModels[lang] = true
+                                }
+
+                                val count = completed.incrementAndGet()
+                                onProgress(count, total, lang)
+                                downloaded
+                            }
+                        }
+                    }
+
+                val results = jobs.map { it.await() }
+                val englishDownloaded = downloadedModels[TranslateLanguage.ENGLISH] == true
+                val hindiDownloaded = downloadedModels[TranslateLanguage.HINDI] == true
+
+                englishDownloaded || hindiDownloaded || results.any { it }
+            }
+        }
+}

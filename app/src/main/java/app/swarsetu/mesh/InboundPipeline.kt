@@ -1716,20 +1716,25 @@ class InboundPipeline(
                 attachmentHash = hash,
                 attachmentMime = content.attachmentMime,
                 attachmentKey = attachmentKey,
-                moderation = if (classifyText(content.body, "incoming", conversationId == Conversations.NEARBY)) {
-                    MessageEntity.MODERATION_TEXT_FLAGGED
-                } else {
-                    MessageEntity.MODERATION_NONE
-                },
-                voiceTextLanguage = content.voiceTextLanguage,
-                isAlert = content.isAlert ?: false
+                moderation =
+                    if (classifyText(content.body, "incoming", conversationId == Conversations.NEARBY)) {
+                        MessageEntity.MODERATION_TEXT_FLAGGED
+                    } else {
+                        MessageEntity.MODERATION_NONE
+                    },
+                isAlert = content.isAlert ?: false,
+                messageType = content.messageType ?: MessageEntity.TYPE_NORMAL_TEXT,
+                sourceLanguage = content.sourceLanguage,
+                targetLanguage = content.targetLanguage,
+                sourceText = content.sourceText,
+                translatedText = content.translatedText,
             ).withReply(content.replyTo)
-            
-            persist(entity)
-            
-            if (entity.voiceTextLanguage != null) {
-                voiceMessageReceiver?.onVoiceMessageReceived(entity)
-            }
+
+        persist(entity)
+
+        if (entity.senderId != identity.nodeId()) {
+            voiceMessageReceiver?.onVoiceMessageReceived(entity)
+        }
         // Start pulling the referenced blob unless we already hold it (the UI observes the blobs table
         // and flips the attachment from "loading" to shown once the bytes land). If we already hold it
         // (e.g. cached earlier while relaying), screen its decrypted bytes now that the key is in hand;
@@ -2039,6 +2044,7 @@ class InboundPipeline(
                     },
                 protoVersion = content.protoVersion ?: existing?.protoVersion,
                 capabilities = content.capabilities ?: existing?.capabilities,
+                preferredLanguage = if (stalePresentation) base.preferredLanguage else content.preferredLanguage,
                 // Never regress: a stale-presentation frame still reaches here for its prekey, and must not
                 // drag the presentation watermark backwards on its way through.
                 updatedAt = maxOf(base.updatedAt, version),

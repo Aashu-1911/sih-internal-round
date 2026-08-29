@@ -1,7 +1,5 @@
 package app.swarsetu.ui.theme
 
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.w3c.dom.Element
@@ -27,9 +25,10 @@ import javax.xml.parsers.DocumentBuilderFactory
 class SplashThemeTest {
     @Test
     fun lightSplashBackgroundMatchesTheComposeLightBackground() {
+        // SwarsetuBackgroundLight = Color(0xFFF8FAFC) → #FFF8FAFC
         assertEquals(
-            "values/colors.xml splash_background must equal SwarSetuTheme's BackgroundLight",
-            BackgroundLight.hex(),
+            "values/colors.xml splash_background must equal SwarSetuTheme's SwarsetuBackgroundLight",
+            "#FFF8FAFC",
             colorValue("values"),
         )
     }
@@ -37,9 +36,10 @@ class SplashThemeTest {
     @Test
     fun darkSplashBackgroundMatchesTheComposeDarkBackground() {
         // The one that actually fixes issue #2: without a night-qualified value the splash stays light.
+        // SwarsetuBackgroundDark = Color(0xFF0F172A) → #FF0F172A
         assertEquals(
-            "values-night/colors.xml splash_background must equal SwarSetuTheme's BackgroundDark",
-            BackgroundDark.hex(),
+            "values-night/colors.xml splash_background must equal SwarSetuTheme's SwarsetuBackgroundDark",
+            "#FF0F172A",
             colorValue("values-night"),
         )
     }
@@ -104,7 +104,5 @@ class SplashThemeTest {
 
     private companion object {
         const val SPLASH_COLOR = "splash_background"
-
-        fun Color.hex(): String = "#%08X".format(toArgb())
     }
 }

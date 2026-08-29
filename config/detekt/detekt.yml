@@ -42,6 +42,8 @@ naming:
 style:
   UnusedImport:
     active: true                           # not in detekt's default-on set; we want dead imports caught in CI
+  UnusedParameter:
+    ignoreAnnotated: ['Composable']        # Compose params are often hoisted state or future-use hooks
   MagicNumber:
     ignorePropertyDeclaration: true        # theme/Color.kt + Type.kt literals
     ignoreLocalVariableDeclaration: true

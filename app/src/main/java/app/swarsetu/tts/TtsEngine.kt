@@ -7,7 +7,6 @@ import java.io.File
  * This guarantees [TtsManager] is completely decoupled from Android's specific `TextToSpeech` API.
  */
 interface TtsEngine {
-    
     /**
      * Attempts to asynchronously initialize the TTS engine.
      * @return True if initialized successfully, False otherwise.
@@ -28,7 +27,10 @@ interface TtsEngine {
      * Synthesizes the text-to-speech [request] and writes the PCM audio to the provided [outputFile].
      * Used for developer metrics, offline benchmarks, and test exports.
      */
-    suspend fun synthesizeToFile(request: TtsRequest, outputFile: File): TtsResult
+    suspend fun synthesizeToFile(
+        request: TtsRequest,
+        outputFile: File,
+    ): TtsResult
 
     /**
      * Interrupts and halts any ongoing synthesis or playback immediately.

@@ -7,7 +7,6 @@ import org.junit.Test
 
 /** Unit tests for [SttResult] and [SttConfig]. */
 class SttResultTest {
-
     // --- SttResult ---
 
     @Test
@@ -25,31 +24,34 @@ class SttResultTest {
 
     @Test
     fun `final result with text is usable`() {
-        val result = SttResult(
-            text = "hello world",
-            type = SttResultType.FINAL,
-            language = SttLanguage.ENGLISH,
-        )
+        val result =
+            SttResult(
+                text = "hello world",
+                type = SttResultType.FINAL,
+                language = SttLanguage.ENGLISH,
+            )
         assertTrue(result.isUsable)
     }
 
     @Test
     fun `partial result with text is not usable`() {
-        val result = SttResult(
-            text = "hello",
-            type = SttResultType.PARTIAL,
-            language = SttLanguage.ENGLISH,
-        )
+        val result =
+            SttResult(
+                text = "hello",
+                type = SttResultType.PARTIAL,
+                language = SttLanguage.ENGLISH,
+            )
         assertFalse(result.isUsable)
     }
 
     @Test
     fun `final result with blank text is not usable`() {
-        val result = SttResult(
-            text = "  ",
-            type = SttResultType.FINAL,
-            language = SttLanguage.ENGLISH,
-        )
+        val result =
+            SttResult(
+                text = "  ",
+                type = SttResultType.FINAL,
+                language = SttLanguage.ENGLISH,
+            )
         assertFalse(result.isUsable)
     }
 
@@ -67,13 +69,14 @@ class SttResultTest {
 
     @Test
     fun `result copy preserves fields`() {
-        val original = SttResult(
-            text = "test",
-            type = SttResultType.PARTIAL,
-            language = SttLanguage.HINDI,
-            confidence = 0.85f,
-            durationMs = 100L,
-        )
+        val original =
+            SttResult(
+                text = "test",
+                type = SttResultType.PARTIAL,
+                language = SttLanguage.HINDI,
+                confidence = 0.85f,
+                durationMs = 100L,
+            )
         val updated = original.copy(type = SttResultType.FINAL)
         assertEquals("test", updated.text)
         assertEquals(SttResultType.FINAL, updated.type)
@@ -115,10 +118,11 @@ class SttResultTest {
     @Test
     fun `config copy works`() {
         val original = SttConfig()
-        val modified = original.copy(
-            language = SttLanguage.TAMIL,
-            enablePartialResults = false,
-        )
+        val modified =
+            original.copy(
+                language = SttLanguage.TAMIL,
+                enablePartialResults = false,
+            )
         assertEquals(SttLanguage.TAMIL, modified.language)
         assertFalse(modified.enablePartialResults)
         // Other fields unchanged

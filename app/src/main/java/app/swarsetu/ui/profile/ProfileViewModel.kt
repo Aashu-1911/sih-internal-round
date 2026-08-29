@@ -27,6 +27,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+import app.swarsetu.stt.SttLanguage
+import app.swarsetu.stt.SttModelManager
+import kotlinx.coroutines.flow.flow
+
 /** The Internet-relay plane, as the Profile row summarises it before handing off to its own screen. */
 data class RelaySummary(
     val enabled: Boolean = false,
@@ -43,6 +47,7 @@ class ProfileViewModel(
     // clock makes its `delay` instant, so a ViewModel test that drives this with `advanceUntilIdle()`
     // would spin. Taking the flow lets a test supply a finite one.
     relayFacts: Flow<RelayFacts>,
+    private val sttModelManager: SttModelManager,
 ) : ViewModel() {
     val nodeId = MutableStateFlow("")
 
@@ -52,6 +57,57 @@ class ProfileViewModel(
      * (and the profile broadcast stays "unset") until the user actually types one.
      */
     val alias = MutableStateFlow("")
+
+    val preferredLanguage: StateFlow<SttLanguage> =
+        settings.sttLanguageCode
+            .map { SttLanguage.fromCode(it) ?: SttLanguage.HINDI }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SttLanguage.HINDI)
+
+    val availableLanguages: StateFlow<List<SttLanguage>> =
+        MutableStateFlow(SttLanguage.entries)
+
+    private val _installedLanguages = MutableStateFlow<Set<SttLanguage>>(emptySet())
+    val installedLanguages: StateFlow<Set<SttLanguage>> = _installedLanguages.asStateFlow()
+
+    private val _downloadingLanguage = MutableStateFlow<SttLanguage?>(null)
+    val downloadingLanguage: StateFlow<SttLanguage?> = _downloadingLanguage.asStateFlow()
+
+    private val _downloadProgress = MutableStateFlow(0f)
+    val downloadProgress: StateFlow<Float> = _downloadProgress.asStateFlow()
+
+    fun checkInstalledLanguages() {
+        viewModelScope.launch {
+            val installed = SttLanguage.entries.filter { sttModelManager.isAvailable(it) }.toSet()
+            _installedLanguages.value = installed
+        }
+    }
+
+    fun setPreferredLanguage(language: SttLanguage) {
+        viewModelScope.launch {
+            settings.setSttLanguageCode(language.code)
+            if (!sttModelManager.isAvailable(language)) {
+                downloadModel(language)
+            } else {
+                checkInstalledLanguages()
+            }
+        }
+    }
+
+    fun downloadModel(language: SttLanguage) {
+        if (_downloadingLanguage.value != null) return
+        _downloadingLanguage.value = language
+        _downloadProgress.value = 0f
+        viewModelScope.launch {
+            try {
+                sttModelManager.downloadSttModel(language) { progress ->
+                    _downloadProgress.value = progress
+                }
+                checkInstalledLanguages()
+            } finally {
+                _downloadingLanguage.value = null
+            }
+        }
+    }
 
     // Editable text is held locally and updated synchronously on each keystroke; nothing is persisted
     // until the user taps Save (see [save]). Binding the field directly to the DataStore flow would
@@ -91,6 +147,26 @@ class ProfileViewModel(
         settings.contentFilteringEnabled
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
+    val themePreference: StateFlow<String> =
+        settings.themePreference
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "system")
+
+    val autoPlayTts: StateFlow<Boolean> =
+        settings.autoPlayTts
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    fun setThemePreference(theme: String) {
+        viewModelScope.launch {
+            settings.setThemePreference(theme)
+        }
+    }
+
+    fun setAutoPlayTts(enabled: Boolean) {
+        viewModelScope.launch {
+            settings.setAutoPlayTts(enabled)
+        }
+    }
+
     /**
      * Summary of the Internet (spool) plane for the row that navigates to its own screen — the switch
      * itself lives there now, with the relay-list editor it needs to be actionable.
@@ -111,6 +187,7 @@ class ProfileViewModel(
             _status.value = status
             lastSavedName.value = name
             lastSavedStatus.value = status
+            checkInstalledLanguages()
         }
     }
 

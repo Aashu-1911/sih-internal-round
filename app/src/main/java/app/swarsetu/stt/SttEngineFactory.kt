@@ -27,6 +27,20 @@ class SttEngineFactory(
      * falls back to [DefaultSttEngine] (which returns empty results but doesn't crash).
      */
     fun create(): SttEngine {
+        if (app.swarsetu.BuildConfig.DEBUG) {
+            when (SttPipeline.VOICE_CAPTURE_DIAGNOSTIC_MODE) {
+                SttPipeline.DiagnosticMode.VOSK -> {
+                    return VoskEngine(context, modelManager)
+                }
+
+                SttPipeline.DiagnosticMode.AUDIO_ONLY -> {
+                    return DefaultSttEngine(context, modelManager)
+                }
+
+                else -> {} // Proceed to normal PRODUCTION fallback
+            }
+        }
+
         return try {
             // Probe for Vosk's native library — if it's not on the classpath, this will throw
             Class.forName("org.vosk.Model")

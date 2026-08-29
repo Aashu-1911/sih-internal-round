@@ -41,8 +41,11 @@ val uiModule =
                 get(),
                 get<RelayStatusRepository>().facts,
                 androidContext(),
-                get(),
-                get(),
+                get(), // ttsManager
+                get(), // voiceMessageAdapter
+                get(), // voiceController
+                get(), // sttPipeline
+                get(), // translatorEngine
             )
         }
         viewModel {
@@ -51,7 +54,7 @@ val uiModule =
         viewModel { ContactsViewModel(get(), get(), get(), get(), get(), get()) }
         viewModel { DiagnosticsViewModel(get(), get(), get(), get(), get(), get(), get()) }
         viewModel { CrashLogViewModel(get()) }
-        viewModel { ProfileViewModel(get(), get(), get(), get(), get<RelayStatusRepository>().facts) }
+        viewModel { ProfileViewModel(get(), get(), get(), get(), get<RelayStatusRepository>().facts, get()) }
         // ProfileDetailsViewModel takes the tapped peer's node id as a runtime param.
         viewModel { params -> ProfileDetailsViewModel(params.get(), get(), get(), get(), get()) }
         // MessageDetailsViewModel takes the long-pressed message's id as a runtime param.

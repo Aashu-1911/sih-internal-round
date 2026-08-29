@@ -1,10 +1,32 @@
 package app.swarsetu.tts.ui
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.swarsetu.tts.TtsLanguage
@@ -15,7 +37,7 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun TtsTestScreen(
     onBack: () -> Unit,
-    viewModel: TtsTestViewModel = koinViewModel()
+    viewModel: TtsTestViewModel = koinViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val metrics by viewModel.metricsCollector.latestMetrics.collectAsState()
@@ -31,39 +53,40 @@ fun TtsTestScreen(
                     IconButton(onClick = onBack) {
                         Text("<-") // In a real app, use an Icon
                     }
-                }
+                },
             )
-        }
+        },
     ) { paddingValues ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Initialization State
             Text(
                 text = "Engine Status: ${if (uiState.isInitialized) "Ready" else "Initializing..."}",
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
             )
 
             // Language Selector
             ExposedDropdownMenuBox(
                 expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
+                onExpandedChange = { expanded = !expanded },
             ) {
                 OutlinedTextField(
                     value = uiState.selectedLanguage.displayName,
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Language") },
-                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                    modifier = Modifier.menuAnchor().fillMaxWidth(),
                 )
                 ExposedDropdownMenu(
                     expanded = expanded,
-                    onDismissRequest = { expanded = false }
+                    onDismissRequest = { expanded = false },
                 ) {
                     TtsLanguage.values().forEach { language ->
                         DropdownMenuItem(
@@ -72,20 +95,21 @@ fun TtsTestScreen(
                                 viewModel.selectLanguage(language)
                                 expanded = false
                                 // Pre-fill sample text based on language if desired
-                            }
+                            },
                         )
                     }
                 }
             }
 
             // Capability Display
-            val capText = when (val cap = uiState.capability) {
-                is TtsLanguageCapability.Supported -> "Supported (${cap.engineName}) - Voice: ${cap.voiceName ?: "Default"}"
-                is TtsLanguageCapability.MissingData -> "Missing Data (${cap.engineName})"
-                is TtsLanguageCapability.Unsupported -> "Unsupported: ${cap.reason}"
-                is TtsLanguageCapability.Error -> "Error: ${cap.errorMessage}"
-                null -> "Checking..."
-            }
+            val capText =
+                when (val cap = uiState.capability) {
+                    is TtsLanguageCapability.Supported -> "Supported (${cap.engineName}) - Voice: ${cap.voiceName ?: "Default"}"
+                    is TtsLanguageCapability.MissingData -> "Missing Data (${cap.engineName})"
+                    is TtsLanguageCapability.Unsupported -> "Unsupported: ${cap.reason}"
+                    is TtsLanguageCapability.Error -> "Error: ${cap.errorMessage}"
+                    null -> "Checking..."
+                }
             Text("Capability: $capText", style = MaterialTheme.typography.bodyMedium)
 
             // Input Text
@@ -94,7 +118,7 @@ fun TtsTestScreen(
                 onValueChange = { inputText = it },
                 label = { Text("Text to Speak") },
                 modifier = Modifier.fillMaxWidth(),
-                minLines = 3
+                minLines = 3,
             )
 
             // Action Buttons
@@ -105,7 +129,7 @@ fun TtsTestScreen(
                 Button(
                     onClick = { viewModel.speakAlert(inputText) },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) {
                     Text("Play Alert")
                 }
@@ -118,37 +142,76 @@ fun TtsTestScreen(
 
             // VOICE PIPELINE (Phase 3)
             Text("Voice Pipeline (Phase 3)", style = MaterialTheme.typography.titleMedium)
-            
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = viewModel.voiceController.isLoopEnabled,
                     onClick = { viewModel.toggleLoop(!viewModel.voiceController.isLoopEnabled) },
-                    label = { Text("LOCAL Loop") }
+                    label = { Text("LOCAL Loop") },
                 )
                 FilterChip(
                     selected = viewModel.voiceController.isMeshEnabled,
                     onClick = { viewModel.toggleMesh(!viewModel.voiceController.isMeshEnabled) },
-                    label = { Text("MESH Mode") }
+                    label = { Text("MESH Mode") },
                 )
             }
             Text("Voice State: $voiceState", style = MaterialTheme.typography.bodyMedium)
-            
+
             val vm by viewModel.voiceController.voiceMetrics.collectAsState()
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Message ID: ${vm.messageId?.take(8) ?: "N/A"}")
                 Text("Voice payload: ${vm.payloadSizeBytes} bytes")
-                
+
                 val sttLat = if (vm.t1SttFinal > 0 && vm.t0SpeechDetected > 0) "${vm.t1SttFinal - vm.t0SpeechDetected}ms" else "N/A"
-                val prepLat = if (vm.t2MessageConstructed > 0 && vm.t1SttFinal > 0) "${vm.t2MessageConstructed - vm.t1SttFinal}ms" else "N/A"
-                val sendLat = if (vm.t3MessageSendRequested > 0 && vm.t2MessageConstructed > 0) "${vm.t3MessageSendRequested - vm.t2MessageConstructed}ms" else "N/A"
-                val netLat = if (vm.t4RemoteMessageReceived > 0 && vm.t3MessageSendRequested > 0) "${vm.t4RemoteMessageReceived - vm.t3MessageSendRequested}ms (Uncalibrated clock)" else "N/A"
-                val ttsLat = if (vm.t5TtsRequest > 0 && vm.t4RemoteMessageReceived > 0) "${vm.t5TtsRequest - vm.t4RemoteMessageReceived}ms" else "N/A"
-                val e2eLat = if (vm.t5TtsRequest > 0 && vm.t0SpeechDetected > 0) "${vm.t5TtsRequest - vm.t0SpeechDetected}ms (approx)" else "N/A"
-                
+                val prepLat =
+                    if (vm.t2MessageConstructed > 0 &&
+                        vm.t1SttFinal > 0
+                    ) {
+                        "${vm.t2MessageConstructed - vm.t1SttFinal}ms"
+                    } else {
+                        "N/A"
+                    }
+                val sendLat =
+                    if (vm.t3MessageSendRequested > 0 &&
+                        vm.t2MessageConstructed > 0
+                    ) {
+                        "${vm.t3MessageSendRequested - vm.t2MessageConstructed}ms"
+                    } else {
+                        "N/A"
+                    }
+                val netLat =
+                    if (vm.t4RemoteMessageReceived > 0 &&
+                        vm.t3MessageSendRequested > 0
+                    ) {
+                        "${vm.t4RemoteMessageReceived - vm.t3MessageSendRequested}ms (Uncalibrated clock)"
+                    } else {
+                        "N/A"
+                    }
+                val ttsLat =
+                    if (vm.t5TtsRequest > 0 &&
+                        vm.t4RemoteMessageReceived > 0
+                    ) {
+                        "${vm.t5TtsRequest - vm.t4RemoteMessageReceived}ms"
+                    } else {
+                        "N/A"
+                    }
+                val e2eLat =
+                    if (vm.t5TtsRequest > 0 &&
+                        vm.t0SpeechDetected > 0
+                    ) {
+                        "${vm.t5TtsRequest - vm.t0SpeechDetected}ms (approx)"
+                    } else {
+                        "N/A"
+                    }
+
                 Text("STT Latency (t1-t0): $sttLat", style = MaterialTheme.typography.bodySmall)
                 Text("Message Prep (t2-t1): $prepLat", style = MaterialTheme.typography.bodySmall)
                 Text("Local Send (t3-t2): $sendLat", style = MaterialTheme.typography.bodySmall)
-                Text("Network Delivery (t4-t3): $netLat", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                Text(
+                    "Network Delivery (t4-t3): $netLat",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
                 Text("TTS Dispatch (t5-t4): $ttsLat", style = MaterialTheme.typography.bodySmall)
                 Text("End-to-End Latency: $e2eLat", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }

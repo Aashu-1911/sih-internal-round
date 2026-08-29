@@ -45,8 +45,15 @@ import app.swarsetu.mesh.protocol.Mention
 import app.swarsetu.mesh.protocol.ReplyRef
 import app.swarsetu.moderation.ImageScreeningService
 import app.swarsetu.notifications.Notifier
+import app.swarsetu.stt.SttLanguage
+import app.swarsetu.stt.SttPipeline
+import app.swarsetu.tts.TtsLanguage
+import app.swarsetu.tts.TtsManager
+import app.swarsetu.tts.TtsPriority
+import app.swarsetu.tts.TtsRequest
 import app.swarsetu.ui.voice.VoicePlayer
 import app.swarsetu.ui.voice.VoiceRecorder
+import app.swarsetu.voice.toTtsLanguage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -120,6 +127,11 @@ data class ChatRow(
     // The message this row quotes (Signal-style reply), or null when it isn't a reply. Denormalized so the
     // quote renders even if the quoted original isn't in this thread. See [MessageEntity.replyRef].
     val replyTo: ReplyRef? = null,
+    val messageType: Int = app.swarsetu.data.message.MessageEntity.TYPE_NORMAL_TEXT,
+    val sourceLanguage: String? = null,
+    val targetLanguage: String? = null,
+    val sourceText: String? = null,
+    val translatedText: String? = null,
 )
 
 /**
@@ -203,33 +215,24 @@ class ChatViewModel(
     // never reach idle. Taking the flow lets a test supply a finite one.
     private val relayFacts: Flow<RelayFacts>,
     private val context: Context,
+    private val ttsManager: TtsManager,
     private val voiceMessageAdapter: app.swarsetu.voice.VoiceMessageAdapter,
     private val voiceController: app.swarsetu.voice.VoiceConversationController,
+    private val sttPipeline: SttPipeline,
+    private val translatorEngine: app.swarsetu.translation.TranslatorEngine,
 ) : ViewModel() {
-    /** This thread is the broadcast room (vs a 1:1 DM keyed by the peer's node id). */
     private val isRoom = conversationId == Conversations.NEARBY
 
     private val myNodeId = MutableStateFlow<String?>(null)
 
-    /** True while the chat is on screen; drives the read watermark below. */
     private val chatForeground = MutableStateFlow(false)
 
-    /** Image staged in the input bar, ready to send with the next message (null when none). */
     private val _pendingAttachment = MutableStateFlow<AttachmentStore.Ingested?>(null)
     val pendingAttachment: StateFlow<AttachmentStore.Ingested?> = _pendingAttachment.asStateFlow()
 
-    /**
-     * An image flagged as explicit by on-device screening, awaiting the user's "send anyway?"
-     * confirmation. Sending such images is allowed but discouraged: it's staged only once confirmed.
-     */
     private val _confirmAttachment = MutableStateFlow<AttachmentStore.Ingested?>(null)
     val confirmAttachment: StateFlow<AttachmentStore.Ingested?> = _confirmAttachment.asStateFlow()
 
-    /**
-     * Live state of an in-progress recording, or null when the mic is idle. [elapsedMs] drives the counter,
-     * [amplitude] the level meter, and [locked] distinguishes hands-free recording (the user slid up) from
-     * hold-to-talk, where letting go ends it.
-     */
     data class VoiceRecording(
         val elapsedMs: Long,
         val amplitude: Float,
@@ -239,16 +242,15 @@ class ChatViewModel(
     private val _voiceRecording = MutableStateFlow<VoiceRecording?>(null)
     val voiceRecording: StateFlow<VoiceRecording?> = _voiceRecording.asStateFlow()
 
-    /** Playback state of whichever voice note is loaded app-wide; a bubble matches it against its own hash. */
     val voicePlayback: StateFlow<VoicePlayer.Playback?> = voicePlayer.nowPlaying
 
-    private val _isLiveTranslateEnabled = MutableStateFlow(false)
-    val isLiveTranslateEnabled: StateFlow<Boolean> = _isLiveTranslateEnabled.asStateFlow()
+    val sttPartialText: StateFlow<String> = sttPipeline.partialText
+    val sttLatestResult: StateFlow<app.swarsetu.stt.SttResult?> = sttPipeline.latestResult
 
-    fun toggleLiveTranslate(enabled: Boolean) {
-        _isLiveTranslateEnabled.value = enabled
-        voiceController.isMeshEnabled = enabled
-    }
+    val selectedSttLanguage: StateFlow<SttLanguage> =
+        settings.sttLanguageCode
+            .map { code -> SttLanguage.fromCode(code) ?: SttLanguage.HINDI }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, SttLanguage.HINDI)
 
     // Built lazily so a chat that never records never opens a recorder, and torn down in onCleared: the
     // microphone is exclusive, and leaking it would block every other app until this process died.
@@ -257,26 +259,17 @@ class ChatViewModel(
     // Ticks the recording UI. Cancelled by every path that ends a recording.
     private var recordingTicker: Job? = null
 
-    /** One-shot UI messages (a string res id), surfaced as toasts — e.g. the result of saving an image. */
     private val _events = MutableSharedFlow<Int>(extraBufferCapacity = 1)
     val events: SharedFlow<Int> = _events.asSharedFlow()
 
-    /** Emitted once the DM's peer is blocked, so the screen can close (the thread is now hidden). */
     private val _closeChat = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val closeChat: SharedFlow<Unit> = _closeChat.asSharedFlow()
 
-    /**
-     * Emitted after a message is accepted and sent, so the screen clears its input field/mentions. The
-     * screen no longer clears optimistically: if [send] blocks the text for abuse, nothing is emitted and
-     * the user keeps their draft to edit.
-     */
     private val _clearInput = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val clearInput: SharedFlow<Unit> = _clearInput.asSharedFlow()
 
     init {
         viewModelScope.launch { myNodeId.value = identity.nodeId() }
-        // Advance this conversation's read watermark while the chat is on screen: on every stream
-        // emission (so messages arriving while you read don't reappear as unread), stamp newest sentAt.
         viewModelScope.launch {
             combine(chatForeground, messages.observeMessages(conversationId)) { foreground, msgs ->
                 if (foreground) msgs.maxOfOrNull { it.sentAt } else null
@@ -286,11 +279,6 @@ class ChatViewModel(
         }
     }
 
-    // Bundles the four message-related streams so the outer combine below stays at the 5-flow typed
-    // overload (a 6th flow falls back to unchecked Array<*> casts). Blocked senders' messages are
-    // filtered out here, so they also drop out of rows and mention candidates. Observing the blob
-    // sizes here is what flips an attachment from "loading" to shown when its bytes arrive — and, since
-    // the same rows carry the byte length, what tells the UI whether those bytes can cross a relay.
     private data class MessagesBundle(
         val messages: List<MessageEntity>,
         val reactions: List<ReactionEntity>,
@@ -299,14 +287,9 @@ class ChatViewModel(
         val flaggedHashes: Set<String>,
         val hideSensitiveContent: Boolean,
         val group: GroupEntity?,
-        // messageId -> how many current roster members have acked it. Empty outside a group.
         val deliveredCounts: Map<String, Int>,
     )
 
-    // Held blob sizes + moderation-flagged hashes plus the content-filtering setting, combined upstream
-    // so the main bundle stays at the typed 5-flow combine overload. The setting only gates receive-side
-    // *hiding* (the chat blur + toxic-text collapse below), so toggling it reactively reveals/hides
-    // already-received content without re-screening; what you can send is enforced elsewhere regardless.
     private val blobState =
         combine(
             blobs.observeSizes(),
@@ -316,9 +299,6 @@ class ChatViewModel(
             Triple(sizes, flagged.toSet(), hideSensitive)
         }
 
-    // The group row paired with "how many members have acked each message", re-subscribed whenever the
-    // roster changes (a departure changes the denominator AND which receipts count). Not a group ⇒ no
-    // roster ⇒ no counts, and the tick keeps its plain wording.
     @OptIn(ExperimentalCoroutinesApi::class)
     private val groupDelivery: Flow<Pair<GroupEntity?, Map<String, Int>>> =
         groups
@@ -353,8 +333,6 @@ class ChatViewModel(
             )
         }
 
-    // Neighbor count + radio health + the "who's typing" map + Internet-relay reach folded into one
-    // source so the main state combine stays within its five-flow arity.
     private data class MeshStatus(
         val neighborCount: Int,
         val transportHealth: TransportHealth,
@@ -393,8 +371,6 @@ class ChatViewModel(
             val isGroup = group != null
             val members = group?.let { GroupMembersStore.decode(it.members) }.orEmpty()
             val peersByNode = peerList.associateBy { it.nodeId }
-            // Group once, then tally per emoji within each message's bucket. Orphan reactions (no matching
-            // message yet) simply never produce a row until their message arrives.
             val reactionsByMessage = reacts.groupBy { it.messageId }
             val rows =
                 msgs.map { m ->
@@ -409,7 +385,6 @@ class ChatViewModel(
                             .orEmpty()
                             .groupBy { it.emoji }
                             .mapNotNull { (emoji, group) ->
-                                // emoji is non-null in the stream (tombstones are filtered in the DAO); guard anyway.
                                 if (emoji == null) {
                                     null
                                 } else {
@@ -428,8 +403,6 @@ class ChatViewModel(
                         sentAt = m.sentAt,
                         received = m.received,
                         deliveredVia = m.receivedPlane,
-                        // Only our own group sends have a "who has it" answer; the roster excludes us,
-                        // since we never ack ourselves (the details screen's rule, kept identical here).
                         deliveredCount = if (mine && isGroup) deliveredCounts[m.id] ?: 0 else 0,
                         recipientTotal = if (mine && isGroup) members.count { it != me } else 0,
                         moderationFlagged = hideSensitive && m.moderation == MessageEntity.MODERATION_TEXT_FLAGGED,
@@ -440,9 +413,6 @@ class ChatViewModel(
                         voicePeaks = m.voicePeaks,
                         attachmentReady = heldBytes != null,
                         attachmentFlagged = hideSensitive && m.attachmentHash != null && m.attachmentHash in flaggedHashes,
-                        // Outbound reach only: a received attachment has already arrived, so telling its
-                        // reader it is "nearby only" would describe a journey that is over. Unknown size
-                        // (bytes reclaimed by retention) falls through to Silent rather than guessing.
                         attachmentRelay =
                             if (mine && heldBytes != null) {
                                 attachmentReach(conversationId, heldBytes, relay)
@@ -452,10 +422,13 @@ class ChatViewModel(
                         mentions = MentionStore.decode(m.mentions),
                         reactions = tallies,
                         replyTo = m.replyRef(),
+                        messageType = m.messageType,
+                        sourceLanguage = m.sourceLanguage,
+                        targetLanguage = m.targetLanguage,
+                        sourceText = m.sourceText,
+                        translatedText = m.translatedText,
                     )
                 }
-            // Autocomplete candidates: everyone we've received a message from, plus a group's roster (so
-            // @-mentions work in a fresh group before anyone has spoken), resolved to a display name.
             val candidates =
                 (msgs.map { it.senderId } + members)
                     .asSequence()
@@ -469,8 +442,6 @@ class ChatViewModel(
                         )
                     }.sortedBy { it.displayName.lowercase() }
                     .toList()
-            // Peers typing in THIS thread, resolved for the indicator row. Skip ourselves (defensive — our
-            // own cue never lands here) and blocked senders (as their messages are already filtered out).
             val typingPeers =
                 typingMap[conversationId]
                     .orEmpty()
@@ -505,7 +476,6 @@ class ChatViewModel(
                             displayNameFor(peersByNode[conversationId]?.name, conversationId)
                         }
                     },
-                // The room uses a glyph; a group shows its photo (or the glyph when unset); a DM the peer avatar.
                 avatarHash =
                     when {
                         isRoom -> null
@@ -521,15 +491,6 @@ class ChatViewModel(
             )
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatUiState(isRoom = isRoom))
 
-    /**
-     * Reach for the image staged in the composer, so the user learns a photo is nearby-only *before*
-     * sending rather than after. Its own flow rather than a [ChatUiState] field: the staged attachment is
-     * not part of the main combine (which is already at the typed five-flow limit), and the composer is
-     * the only consumer.
-     *
-     * The size comes from the blob table, not from [AttachmentStore.Ingested] — ingestion has already
-     * stored the bytes by the time an image is staged, so the row is there to be read.
-     */
     val stagedAttachmentRelay: StateFlow<AttachmentRelay> =
         combine(
             _pendingAttachment,
@@ -540,18 +501,6 @@ class ChatViewModel(
             attachmentReach(conversationId, bytes, relay)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentRelay.Silent)
 
-    /**
-     * Double-submit guard: true from the moment a send is accepted until its input is cleared (success)
-     * or it's rejected (blocked). [send] is a suspending round-trip (seal-to-recipients + DB write +
-     * enqueue), and the input isn't cleared until it returns, so without this a rapid burst of taps on
-     * the always-enabled send button would each read the same still-present draft and flood duplicates.
-     * Main-thread-confined: touched only from [send] and [onInputCleared], both on the main dispatcher.
-     *
-     * Exposed as [isSending] so the chat screen can show a "working…" spinner in the send button while a
-     * send is in flight — on a cold start the first send blocks on the one-time toxicity-model load
-     * (~16 MB TFLite + tokenizer + Interpreter), which otherwise looks like a frozen app. Backing the
-     * guard and the UI signal with the same value keeps them from ever diverging.
-     */
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending.asStateFlow()
 
@@ -563,24 +512,36 @@ class ChatViewModel(
         val trimmed = text.trim().take(TextLimits.MESSAGE)
         val attachment = _pendingAttachment.value
         if (trimmed.isEmpty() && attachment == null) return
-        // Ignore re-entrant taps while a send is in flight, and — on success — until the field is
-        // actually cleared, so a tap landing in the gap between sendChat returning and clearText running
-        // can't re-send the same draft. Released in the blocked branch and in onInputCleared().
         if (_isSending.value) return
         _isSending.value = true
         viewModelScope.launch {
-            // Deferred release: an accepted send keeps the guard held until the field is actually
-            // cleared (onInputCleared); the finally frees it on a block or an unexpected send-path throw
-            // so the guard can never stick and freeze the input.
-            var accepted = false
             try {
-                // Normalize a self-quote's snapshotted author before it goes on the wire (see the helper).
                 val outgoingReply = normalizeSelfAuthor(replyTo)
-                // Re-read the group at send time so it's never misrouted as a DM in a startup race, and so
-                // a pending rename rides this message (its GroupInfo.name converges last-writer-wins).
                 val group = if (isRoom) null else groups.find(conversationId)
-                val voiceLanguage = if (_isLiveTranslateEnabled.value) app.swarsetu.tts.TtsLanguage.HINDI.name else null
-                
+
+                val myLang = selectedSttLanguage.value.code.lowercase()
+                var sourceLang: String? = myLang
+                var targetLang: String? = null
+                var translatedText: String? = null
+
+                if (!isRoom && group == null) {
+                    val peer = peers.find(conversationId)
+                    val peerLang = peer?.preferredLanguage?.lowercase()
+                    if (peerLang != null) {
+                        val normMy = translatorEngine.normalizeToLanguageTag(myLang) ?: myLang
+                        val normPeer = translatorEngine.normalizeToLanguageTag(peerLang) ?: peerLang
+                        if (normMy != normPeer && trimmed.isNotBlank()) {
+                            targetLang = normPeer
+                            sourceLang = normMy
+                            val protectedNouns = listOfNotNull(peer.name, settings.displayName.first())
+                            val res = translatorEngine.translate(trimmed, normMy, normPeer, protectedNouns)
+                            if (res.isNotBlank() && res != trimmed) {
+                                translatedText = res
+                            }
+                        }
+                    }
+                }
+
                 val sent =
                     if (group != null) {
                         meshManager.sendChat(
@@ -590,48 +551,61 @@ class ChatViewModel(
                             recipientId = null,
                             group = group.toGroupInfo(),
                             replyTo = outgoingReply,
-                            voiceTextLanguage = voiceLanguage,
+                            messageType = MessageEntity.TYPE_NORMAL_TEXT,
+                            sourceLanguage = sourceLang,
+                            targetLanguage = targetLang,
+                            sourceText = trimmed,
+                            translatedText = translatedText,
                         )
                     } else {
-                        // Broadcast room -> no recipient; a DM thread is keyed by the peer's node id.
                         val recipientId = if (isRoom) null else conversationId
                         meshManager.sendChat(
-                            text = trimmed, 
-                            attachment = attachment, 
-                            mentions = mentions, 
-                            recipientId = recipientId, 
+                            text = trimmed,
+                            attachment = attachment,
+                            mentions = mentions,
+                            recipientId = recipientId,
                             replyTo = outgoingReply,
-                            voiceTextLanguage = voiceLanguage,
+                            messageType = MessageEntity.TYPE_NORMAL_TEXT,
+                            sourceLanguage = sourceLang,
+                            targetLanguage = targetLang,
+                            sourceText = trimmed,
+                            translatedText = translatedText,
                         )
                     }
-                // MeshManager applies block-on-send. Clear the input/attachment only once a message is
-                // accepted; a blocked message keeps the draft and surfaces a toast so the user can edit.
                 if (sent) {
-                    accepted = true
-                    // The voice description is deliberately NOT written here. It rides on the staged
-                    // [AttachmentStore.Ingested] and is written by `MeshManager.sendChat` against the hash
-                    // the row actually holds — for a DM or group that is the attachment's *ciphertext*
-                    // hash, so writing it here against the plaintext hash staged above would silently
-                    // update no rows at all.
                     _pendingAttachment.value = null
-                    // Guard stays held until the screen reports the field cleared (onInputCleared), so no
-                    // duplicate can slip through the tryEmit -> collect -> clearText hop.
                     _clearInput.tryEmit(Unit)
                 } else {
+                    _isSending.value = false
                     _events.tryEmit(R.string.moderation_text_blocked)
                 }
-            } finally {
-                if (!accepted) _isSending.value = false
+            } catch (e: Exception) {
+                _isSending.value = false
             }
         }
     }
 
-    /**
-     * Normalizes a quoted-reply's author snapshot before it goes on the wire: a reply quoting *our own*
-     * message must carry the display name a peer resolves for us — never the local "You" self-label — so
-     * every recipient shows our real name and only swaps in "You" when they are themselves the quoted
-     * author. A reply to anyone else is returned unchanged (its snapshot is already a peer-resolved name).
-     */
+    fun replayTts(
+        text: String,
+        languageCode: String?,
+    ) {
+        if (text.isBlank()) return
+        val ttsLang = TtsLanguage.fromLanguageCode(languageCode, text) ?: TtsLanguage.HINDI
+        viewModelScope.launch {
+            ttsManager.speak(
+                TtsRequest(
+                    requestId =
+                        java.util.UUID
+                            .randomUUID()
+                            .toString(),
+                    text = text,
+                    language = ttsLang,
+                    priority = TtsPriority.ALERT,
+                ),
+            )
+        }
+    }
+
     private suspend fun normalizeSelfAuthor(replyTo: ReplyRef?): ReplyRef? {
         val me = identity.nodeId()
         return replyTo
@@ -640,21 +614,34 @@ class ChatViewModel(
             ?: replyTo
     }
 
-    /**
-     * The screen finished clearing the input after an accepted send; release the double-submit guard.
-     * Deferred to here (rather than the success branch above) so the guard covers the window between
-     * [send] returning and the field visually clearing — see [isSending].
-     */
+    fun sendAlert() {
+        if (_isSending.value) return
+        _isSending.value = true
+        viewModelScope.launch {
+            try {
+                val sent =
+                    meshManager.sendChat(
+                        text = context.getString(R.string.emergency_alert_text),
+                        recipientId = null,
+                        isAlert = true,
+                        messageType = app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE,
+                        sourceLanguage = selectedSttLanguage.value.toTtsLanguage()?.name,
+                    )
+                if (!sent) {
+                    android.util.Log.w("ChatViewModel", "ALERT_BROADCAST_FAILED")
+                } else {
+                    android.util.Log.d("ChatViewModel", "ALERT_BROADCAST_SENT")
+                }
+            } finally {
+                _isSending.value = false
+            }
+        }
+    }
+
     fun onInputCleared() {
         _isSending.value = false
     }
 
-    /**
-     * Toggles the local user's [emoji] reaction on [messageId] (add / replace / remove) and floods it.
-     * Passes the thread context along, resolved the same way [send] does (re-read at send time), so a
-     * DM/group reaction rides sealed where the conversation supports it — the manager never re-derives
-     * the context from the message row.
-     */
     fun react(
         messageId: String,
         emoji: String,
@@ -666,11 +653,6 @@ class ChatViewModel(
         }
     }
 
-    /**
-     * Removes [messageId] from this device only — its row, its reactions, its per-recipient delivery
-     * rows, and (if no other message still references it) its content-addressed attachment blob. Sends
-     * nothing over the mesh.
-     */
     fun deleteMessage(messageId: String) {
         val hash =
             state.value.rows
@@ -685,19 +667,14 @@ class ChatViewModel(
         }
     }
 
-    /** Blocks [nodeId] locally: their messages/reactions stop being stored, shown, and notified. */
     fun block(nodeId: String) {
         viewModelScope.launch {
             settings.block(nodeId, peers.find(nodeId)?.deviceTag)
             _events.tryEmit(R.string.chat_user_blocked)
-            // Blocking the peer of a DM empties this thread (and hides it from the list), so close the
-            // now-confusing screen. Emitted only after the block persists, so navigating away can't
-            // cancel the write. Blocking from the Nearby room leaves the room open.
             if (!isRoom) _closeChat.tryEmit(Unit)
         }
     }
 
-    /** Unblocks [nodeId], restoring their (never-deleted) message history. */
     fun unblock(nodeId: String) {
         viewModelScope.launch {
             settings.unblock(nodeId, peers.find(nodeId)?.deviceTag)
@@ -705,31 +682,14 @@ class ChatViewModel(
         }
     }
 
-    /**
-     * Ingests a picked or keyboard-inserted image and stages it in the input bar. A decode failure is
-     * silently ignored, as before — the picture is still sitting in the picker, so there is nothing to
-     * explain.
-     */
     fun attach(uri: Uri) {
         viewModelScope.launch { stage(attachments.ingest(uri), notifyFailure = false) }
     }
 
-    /**
-     * Ingests a photo just taken with the in-app camera ([app.swarsetu.ui.camera.PhotoCapture]) and
-     * stages it exactly like a picked one. The bytes arrive in memory and are never written to disk.
-     *
-     * Unlike [attach] this **does** surface a failure: the shot exists nowhere else, so silently
-     * dropping it would look like the camera simply did nothing.
-     */
     fun attachCaptured(jpeg: ByteArray) {
         viewModelScope.launch { stage(attachments.ingest(jpeg, "image/jpeg"), notifyFailure = true) }
     }
 
-    /**
-     * Stages an ingested image, or handles its verdict. A picture flagged as explicit by on-device
-     * screening is handled by context: the public Nearby room **blocks** it outright (no confirmation
-     * bypass), while DMs/groups route it to [confirmAttachment] for a "send anyway?" confirmation.
-     */
     private suspend fun stage(
         result: AttachmentStore.IngestResult,
         notifyFailure: Boolean,
@@ -742,7 +702,6 @@ class ChatViewModel(
                     }
 
                     isRoom -> {
-                        // Hard block in the broadcast room; drop the ingested-but-unsent blob.
                         blobs.deleteIfUnreferenced(result.ingested.hash)
                         _events.tryEmit(R.string.moderation_image_blocked)
                     }
@@ -759,134 +718,92 @@ class ChatViewModel(
         }
     }
 
-    /**
-     * Starts recording a voice note. Returns false when the microphone couldn't be opened — held by a call
-     * or another app — so the composer can say so rather than showing a recorder that captures silence. The
-     * caller has already cleared the `RECORD_AUDIO` gate.
-     *
-     * [locked] starts a hands-free recording directly (the accessibility tap path); hold-to-talk starts
-     * unlocked and flips via [lockVoiceRecording] when the user slides up.
-     */
     fun startVoiceRecording(locked: Boolean = false): Boolean {
-        if (_voiceRecording.value != null) return false
-        
-        if (_isLiveTranslateEnabled.value) {
-            // Live translate mode: trigger the STT pipeline for mesh voice translation.
-            viewModelScope.launch {
-                val groupInfo = groups.find(conversationId)?.toGroupInfo()
-                voiceMessageAdapter.startVoiceMessage(
-                    language = app.swarsetu.stt.SttLanguage.HINDI, // Default to Hindi
-                    recipientId = if (!isRoom && groupInfo == null) conversationId else null,
-                    group = groupInfo,
-                    replyTo = null,
-                    isAlert = false
-                )
-            }
+        android.util.Log.d("ChatViewModel", "VOICE_START_REQUESTED")
+        if (_voiceRecording.value != null || sttPipeline.state.value != app.swarsetu.stt.SttPipeline.PipelineState.IDLE) {
+            android.util.Log.w("ChatViewModel", "VOICE_START_REJECTED: Pipeline not IDLE")
+            return false
+        }
+        val language = selectedSttLanguage.value
+
+        // Enable mesh transmission
+        voiceController.isMeshEnabled = true
+
+        // Set routing context SYNCHRONOUSLY before startCapture so the adapter
+        // always has context when the STT result arrives.
+        // Note: We launch immediately and the STT result can't arrive until audio
+        // is captured (minimum ~500ms), so this coroutine is guaranteed to run first.
+        viewModelScope.launch {
+            val group = if (isRoom) null else groups.find(conversationId)
+            voiceMessageAdapter.startVoiceMessage(
+                language = language,
+                recipientId = if (isRoom) null else conversationId,
+                group = group?.toGroupInfo(),
+            )
+        }
+
+        if (sttPipeline.canCapture) {
+            android.util.Log.d("ChatViewModel", "VOICE_START_ACCEPTED (STT)")
+            sttPipeline.startCapture(language, silenceTimeoutMs = 0L)
         } else {
-            // Audio recording mode
-            if (!recorder.start()) {
-                _events.tryEmit(R.string.chat_voice_record_failed)
-                return false
-            }
+            android.util.Log.w("ChatViewModel", "VOICE_START_REJECTED (STT Permission)")
+            voiceMessageAdapter.stopVoiceMessage()
+            voiceController.isMeshEnabled = false
+            _events.tryEmit(R.string.chat_voice_record_failed)
+            return false
         }
 
         _voiceRecording.value = VoiceRecording(elapsedMs = 0L, amplitude = 0f, locked = locked)
         recordingTicker?.cancel()
         recordingTicker =
             viewModelScope.launch {
+                val startTime = System.currentTimeMillis()
                 while (true) {
                     delay(VOICE_TICK_MS)
-                    val elapsed = recorder.elapsedMs()
-                    // Stop cleanly at the cap rather than letting the recorder run on: the note is still
-                    // staged, so a user who talks past five minutes keeps what they said instead of losing it.
-                    if (elapsed >= VoiceRecorder.MAX_DURATION_MS) {
+                    val elapsed = System.currentTimeMillis() - startTime
+                    val amp = sttPipeline.amplitude.value
+                    if (elapsed >= 600_000L) {
                         stopVoiceRecordingAndStage()
                         return@launch
                     }
                     _voiceRecording.value =
-                        _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = recorder.amplitude())
+                        _voiceRecording.value?.copy(elapsedMs = elapsed, amplitude = amp)
                 }
             }
         return true
     }
 
-    /** Switches an in-progress hold-to-talk recording to hands-free; the user slid up off the button. */
     fun lockVoiceRecording() {
         _voiceRecording.value = _voiceRecording.value?.copy(locked = true)
     }
 
-    /**
-     * Ends the recording and stages it for review, exactly as a picked photo is staged — so the user hears
-     * it back before sending, and can still add text or a reply quote to it.
-     *
-     * A recording too short to have said anything is discarded rather than staged: releasing the button by
-     * accident is common, and an unsendable 0.2 s blip in the composer is worse than nothing happening.
-     */
     fun stopVoiceRecordingAndStage() {
+        android.util.Log.d("ChatViewModel", "VOICE_STOP_REQUESTED")
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
-        
-        if (_isLiveTranslateEnabled.value) {
-            voiceMessageAdapter.stopVoiceMessage()
-            _voiceRecording.value = null
-            return
-        }
+
+        sttPipeline.stopCapture()
+        android.util.Log.d("ChatViewModel", "VOICE_MESSAGE_CREATED (STT Text path invoked)")
 
         _voiceRecording.value = null
-        // Decide on the *elapsed time* before touching the recorder. A press too short to have encoded a
-        // frame is the common fumble, and taking it through stop() is what made it look like a hardware
-        // failure: MediaRecorder.stop() throws a bare RuntimeException when the encoder produced nothing,
-        // so a tap logged a scary warning and toasted "couldn't record". Cancelling instead resets the
-        // recorder cleanly and says the one useful thing — hold the button.
-        val tooShort = recorder.elapsedMs() < MIN_VOICE_MS
-        if (tooShort) {
-            recorder.cancel()
-            _events.tryEmit(R.string.chat_voice_too_short)
-            return
-        }
-        viewModelScope.launch {
-            val bytes = recorder.stop()
-            if (bytes == null) {
-                _events.tryEmit(R.string.chat_voice_record_failed)
-                return@launch
-            }
-            // Second gate, on the bytes rather than the clock: the encoder can lag the button, so a press
-            // held just past the threshold may still have produced less audio than it looked like.
-            // durationMs is pure header arithmetic, so this costs nothing.
-            if ((VoiceAudio.durationMs(bytes) ?: 0) < MIN_VOICE_MS) {
-                _events.tryEmit(R.string.chat_voice_too_short)
-                return@launch
-            }
-            when (val result = attachments.ingestVoice(bytes)) {
-                is AttachmentStore.IngestResult.Success -> {
-                    // The description rides on the staged attachment itself: the review row reads it from
-                    // there, and MeshManager writes it onto the row it creates, against the (possibly
-                    // ciphertext) hash that row will actually hold.
-                    _pendingAttachment.value = result.ingested
-                }
-
-                AttachmentStore.IngestResult.Failed -> {
-                    _events.tryEmit(R.string.chat_voice_record_failed)
-                }
-            }
-        }
+        android.util.Log.d("ChatViewModel", "VOICE_STATE_IDLE")
+        // isMeshEnabled stays true until VoiceMessageAdapter clears context after sending
     }
 
-    /** Abandons an in-progress recording — the user slid to cancel. Nothing is ingested, so there's no GC. */
     fun cancelVoiceRecording() {
         if (_voiceRecording.value == null) return
         recordingTicker?.cancel()
         recordingTicker = null
-        if (_isLiveTranslateEnabled.value) {
-            voiceMessageAdapter.stopVoiceMessage()
-        } else {
-            recorder.cancel()
-        }
+        sttPipeline.cancelCapture()
+        voicePlayer.stop()
+        voiceMessageAdapter.stopVoiceMessage()
+        voiceController.isMeshEnabled = false
+
         _voiceRecording.value = null
+        android.util.Log.d("ChatViewModel", "VOICE_STATE_IDLE (Cancelled)")
     }
 
-    /** Plays (or pauses, when it's already the loaded note) the voice note stored under [hash]. */
     fun playVoice(
         hash: String,
         key: String?,
@@ -992,8 +909,10 @@ class ChatViewModel(
      */
     override fun onCleared() {
         recordingTicker?.cancel()
-        recorder.cancel()
+        sttPipeline.cancelCapture()
         voicePlayer.stop()
+        voiceMessageAdapter.stopVoiceMessage()
+        voiceController.isMeshEnabled = false
         super.onCleared()
     }
 

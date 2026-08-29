@@ -85,8 +85,14 @@ data class MessageEntity(
     val moderation: Int = MODERATION_NONE,
     val pendingKey: Boolean = false,
     val kind: Int = KIND_NORMAL,
+    @Deprecated("Replaced by messageType and semantic translation fields")
     val voiceTextLanguage: String? = null,
     val isAlert: Boolean = false,
+    val messageType: Int = TYPE_NORMAL_TEXT,
+    val sourceLanguage: String? = null,
+    val targetLanguage: String? = null,
+    val sourceText: String? = null,
+    val translatedText: String? = null,
 ) {
     companion object {
         /** [moderation]: text passed (or was not checked). */
@@ -100,6 +106,15 @@ data class MessageEntity(
 
         /** [kind]: a "member left the group" status notice, shown as a centered line. */
         const val KIND_MEMBER_LEFT = 1
+        
+        /** [messageType]: A regular text message. */
+        const val TYPE_NORMAL_TEXT = 0
+        
+        /** [messageType]: A recorded voice note. */
+        const val TYPE_VOICE_NOTE = 1
+        
+        /** [messageType]: A translated voice message. */
+        const val TYPE_TRANSLATED_VOICE = 2
     }
 }
 

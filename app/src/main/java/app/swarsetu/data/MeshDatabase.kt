@@ -68,7 +68,10 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
     //     unchanged, and no digest folds over it; migrated by MeshMigrations.MIGRATION_5_6.
     // v7: two `messages` columns describing a voice text message — `voiceTextLanguage` and `isAlert`.
     //     Used for the offline STT -> Mesh -> TTS pipeline.
-    version = 7,
+    // v8: Semantic translation message types + peer preferred language.
+    //     Added messageType, sourceLanguage, targetLanguage, sourceText, translatedText to `messages`.
+    //     Added preferredLanguage to `peers`.
+    version = 8,
     // Export the schema JSON to app/schemas/ (location set by the androidx.room Gradle plugin's
     // room { schemaDirectory(...) } in app/build.gradle.kts). Keeps the schema diffable in review and feeds
     // the migration test's MigrationTestHelper. Room also errors at compile time if an entity changes without

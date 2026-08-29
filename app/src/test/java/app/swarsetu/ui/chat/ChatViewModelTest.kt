@@ -27,6 +27,8 @@ import app.swarsetu.mesh.crypto.AttachmentCrypto
 import app.swarsetu.mesh.crypto.b64
 import app.swarsetu.moderation.ImageScreeningService
 import app.swarsetu.notifications.Notifier
+import app.swarsetu.stt.SttPipeline
+import app.swarsetu.tts.TtsManager
 import app.swarsetu.ui.msg
 import app.swarsetu.ui.peer
 import app.swarsetu.ui.reaction
@@ -76,7 +78,10 @@ class ChatViewModelTest {
     private val imageScreening = mockk<ImageScreeningService>(relaxed = true)
     private val gallerySaver = mockk<GallerySaver>(relaxed = true)
     private val voicePlayer = mockk<VoicePlayer>(relaxed = true)
+    private val ttsManager = mockk<TtsManager>(relaxed = true)
     private val voiceMessageAdapter = mockk<app.swarsetu.voice.VoiceMessageAdapter>(relaxed = true)
+    private val voiceController = mockk<app.swarsetu.voice.VoiceConversationController>(relaxed = true)
+    private val sttPipeline = mockk<SttPipeline>(relaxed = true)
 
     private val messagesFlow = MutableStateFlow(emptyList<MessageEntity>())
     private val reactionsFlow = MutableStateFlow(emptyList<ReactionEntity>())
@@ -107,6 +112,7 @@ class ChatViewModelTest {
         every { groups.observeGroup(GROUP) } returns groupFlow
         every { peers.observePeers() } returns peersFlow
         every { settings.displayName } returns nameFlow
+        every { settings.sttLanguageCode } returns MutableStateFlow("hi")
         // A relaxed mock would hand back a Flow that never emits, and RelayStatusRepository
         // combines these — one silent flow would stall every state assertion in this class.
         every { settings.spoolEnabled } returns spoolEnabledFlow
@@ -152,7 +158,11 @@ class ChatViewModelTest {
             // `advanceUntilIdle()` below would never reach idle.
             relayFactsFlow,
             context,
+            ttsManager,
             voiceMessageAdapter,
+            voiceController,
+            sttPipeline,
+            app.swarsetu.translation.TranslatorEngine(),
         )
 
     @Test

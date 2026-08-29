@@ -5,7 +5,6 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TtsLanguageTest {
-
     @Test
     fun `test all required ISRO languages are defined`() {
         assertEquals(10, TtsLanguage.values().size)

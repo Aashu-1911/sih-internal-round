@@ -8,7 +8,6 @@ import org.junit.Test
 
 /** Unit tests for [SttLanguage] — the language enum and its helpers. */
 class SttLanguageTest {
-
     @Test
     fun `all ten target languages are declared`() {
         assertEquals(10, SttLanguage.entries.size)

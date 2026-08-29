@@ -1,0 +1,47 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:TtsMetrics.kt:TtsMetrics$completionTimestampMs != null &amp;&amp; synthesisBeginTimestampMs != null &amp;&amp; totalAudioDurationMs != null &amp;&amp; totalAudioDurationMs &gt; 0</ID>
+    <ID>CyclomaticComplexMethod:SttPipeline.kt:SttPipeline$private suspend fun captureAudioWithVad</ID>
+    <ID>CyclomaticComplexMethod:VoskEngine.kt:VoskEngine$override fun transcribeStream: Flow&lt;SttResult&gt;</ID>
+    <ID>EmptyFunctionBlock:TtsSchedulerTest.kt:TtsSchedulerTest.FakeTtsEngine${}</ID>
+    <ID>LongMethod:SttBenchmark.kt:SttBenchmark$suspend fun runBenchmark: BenchmarkResult</ID>
+    <ID>LongMethod:SttPipeline.kt:SttPipeline$private suspend fun captureAudioWithVad</ID>
+    <ID>LongMethod:VoskEngine.kt:VoskEngine$override fun transcribeStream: Flow&lt;SttResult&gt;</ID>
+    <ID>LoopWithTooManyJumpStatements:PcmCapture.kt:PcmCapture$while</ID>
+    <ID>LoopWithTooManyJumpStatements:SttPipeline.kt:SttPipeline$while</ID>
+    <ID>MagicNumber:ChatViewModel.kt:ChatViewModel$600_000L</ID>
+    <ID>MagicNumber:PcmCapture.kt:PcmCapture$10</ID>
+    <ID>MagicNumber:PcmCapture.kt:PcmCapture$1000L</ID>
+    <ID>MagicNumber:PcmCapture.kt:PcmCapture$1_000L</ID>
+    <ID>MagicNumber:PcmCapture.kt:PcmCapture$5</ID>
+    <ID>MagicNumber:PcmCapture.kt:PcmCapture$60</ID>
+    <ID>MagicNumber:SttBenchmark.kt:SttBenchmark.BenchmarkResult$100</ID>
+    <ID>MagicNumber:SttConfig.kt:SttConfig$1_000L</ID>
+    <ID>MagicNumber:SttConfig.kt:SttConfig$5</ID>
+    <ID>MagicNumber:SttConfig.kt:SttConfig$60</ID>
+    <ID>MagicNumber:SttPipeline.kt:SttPipeline$1000L</ID>
+    <ID>MagicNumber:VoskEngine.kt:VoskEngine$0xFF</ID>
+    <ID>MagicNumber:VoskEngine.kt:VoskEngine$8</ID>
+    <ID>MaxLineLength:TranslatorEngine.kt:TranslatorEngine$// Download all models concurrently for better performance and to prevent Android's DownloadManager from throttling sequential requests</ID>
+    <ID>MaxLineLength:WifiAwareTransport.kt:WifiAwareTransport$"NAN_WATCHDOG_SELF_KILL: elapsed=${now}ms syncOwedFor=${now - syncOwedSince}ms corroborated=$corroboratedOwed peers=${peers.size} reachable=${reachablePeers.size} inFlight=${inFlight.size} sessionActive=${session != null} health=${_health.value}"</ID>
+    <ID>NestedBlockDepth:SttPipeline.kt:SttPipeline$private suspend fun captureAudioWithVad</ID>
+    <ID>NestedBlockDepth:VoiceMeshPipelineBugConditionTest.kt:VoiceMeshPipelineBugConditionTest$@Test fun `test 1_2 - Koin DI resolves ChatViewModel with 21 parameters including sttPipeline`</ID>
+    <ID>SwallowedException:AndroidTtsEngine.kt:AndroidTtsEngine$e: Exception</ID>
+    <ID>SwallowedException:ChatViewModel.kt:ChatViewModel$e: Exception</ID>
+    <ID>SwallowedException:KoinGraphTest.kt:KoinGraphTest$e: Throwable</ID>
+    <ID>SwallowedException:LanguageInitScreen.kt:e: Exception</ID>
+    <ID>SwallowedException:VoiceMeshPipelineBugConditionTest.kt:VoiceMeshPipelineBugConditionTest$e: Exception</ID>
+    <ID>SwallowedException:VoiceMessageReceiver.kt:VoiceMessageReceiver$e: IllegalArgumentException</ID>
+    <ID>TooGenericExceptionCaught:AndroidTtsEngine.kt:AndroidTtsEngine$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ChatViewModel.kt:ChatViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:DefaultSttEngine.kt:DefaultSttEngine$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:LanguageInitScreen.kt:e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SttBenchmark.kt:SttBenchmark$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SttPipeline.kt:SttPipeline$e: Throwable</ID>
+    <ID>TooGenericExceptionCaught:TranslatorEngine.kt:TranslatorEngine$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TtsScheduler.kt:TtsScheduler$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:VoskEngine.kt:VoskEngine$e: Exception</ID>
+  </CurrentIssues>
+</SmellBaseline>

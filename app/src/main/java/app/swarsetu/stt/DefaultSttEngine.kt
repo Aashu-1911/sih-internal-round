@@ -28,7 +28,6 @@ open class DefaultSttEngine(
     private val context: Context,
     private val modelManager: SttModelManager,
 ) : SttEngine {
-
     private val mutex = Mutex()
     private var initialized = false
     private var _config: SttConfig? = null
@@ -38,37 +37,38 @@ open class DefaultSttEngine(
     override val isReady: Boolean get() = initialized
     override val currentLanguage: SttLanguage? get() = _currentLanguage
 
-    override suspend fun initialize(config: SttConfig) = mutex.withLock {
-        if (initialized && _currentLanguage == config.language) {
-            Log.d(TAG, "Already initialized for ${config.language.code}")
-            return@withLock
-        }
-        _config = config
-        _currentLanguage = config.language
+    override suspend fun initialize(config: SttConfig) =
+        mutex.withLock {
+            if (initialized && _currentLanguage == config.language) {
+                Log.d(TAG, "Already initialized for ${config.language.code}")
+                return@withLock
+            }
+            _config = config
+            _currentLanguage = config.language
 
-        if (!modelManager.isAvailable(config.language)) {
-            Log.w(TAG, "No model available for ${config.language.code} — engine will return empty results")
-            initialized = true
-            return@withLock
-        }
+            if (!modelManager.isAvailable(config.language)) {
+                Log.w(TAG, "No model available for ${config.language.code} — engine will return empty results")
+                initialized = true
+                return@withLock
+            }
 
-        try {
-            loadModel(config.language)
-            modelManager.markLoaded(
-                SttModelInfo(
-                    language = config.language,
-                    modelPath = config.language.assetDir ?: "",
-                    description = "Default STT model for ${config.language.displayName}",
-                ),
-            )
-            initialized = true
-            Log.d(TAG, "Initialized for ${config.language.code}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Model load failed for ${config.language.code}: ${e.message}")
-            // Graceful degradation: engine is "ready" but will return empty results
-            initialized = true
+            try {
+                loadModel(config.language)
+                modelManager.markLoaded(
+                    SttModelInfo(
+                        language = config.language,
+                        modelPath = config.language.assetDir ?: "",
+                        description = "Default STT model for ${config.language.displayName}",
+                    ),
+                )
+                initialized = true
+                Log.d(TAG, "Initialized for ${config.language.code}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Model load failed for ${config.language.code}: ${e.message}")
+                // Graceful degradation: engine is "ready" but will return empty results
+                initialized = true
+            }
         }
-    }
 
     override suspend fun setLanguage(language: SttLanguage) {
         val currentConfig = _config ?: SttConfig()
@@ -79,85 +79,89 @@ open class DefaultSttEngine(
     override suspend fun transcribe(
         pcm: ShortArray,
         language: SttLanguage,
-    ): SttResult = withContext(Dispatchers.Default) {
-        mutex.withLock {
-            validatePcm(pcm, language) ?: return@withLock SttResult.empty(language)
+    ): SttResult =
+        withContext(Dispatchers.Default) {
+            mutex.withLock {
+                validatePcm(pcm, language) ?: return@withLock SttResult.empty(language)
 
-            if (!initialized) {
-                return@withLock SttResult.empty(language)
-            }
-
-            if (!modelManager.isAvailable(language)) {
-                return@withLock SttResult.empty(language)
-            }
-
-            val startMs = System.currentTimeMillis()
-            val result = runCatching { inferPcm(pcm, language) }
-                .getOrElse { e ->
-                    Log.w(TAG, "Inference failed: ${e.message}")
-                    SttResult.empty(language)
+                if (!initialized) {
+                    return@withLock SttResult.empty(language)
                 }
-            val elapsed = System.currentTimeMillis() - startMs
 
-            if (result.text.isBlank()) {
-                SttResult.empty(language)
-            } else {
-                result.copy(durationMs = elapsed)
+                if (!modelManager.isAvailable(language)) {
+                    return@withLock SttResult.empty(language)
+                }
+
+                val startMs = System.currentTimeMillis()
+                val result =
+                    runCatching { inferPcm(pcm, language) }
+                        .getOrElse { e ->
+                            Log.w(TAG, "Inference failed: ${e.message}")
+                            SttResult.empty(language)
+                        }
+                val elapsed = System.currentTimeMillis() - startMs
+
+                if (result.text.isBlank()) {
+                    SttResult.empty(language)
+                } else {
+                    result.copy(durationMs = elapsed)
+                }
             }
         }
-    }
 
     override fun transcribeStream(
         pcm: ShortArray,
         language: SttLanguage,
-    ): Flow<SttResult> = flow {
-        // Default implementation: chunk the PCM and emit partial results.
-        // Concrete engines with streaming support (e.g. Vosk) should override this
-        // for better latency.
-        val chunkSize = language.sampleRate / 2 // 500ms chunks
-        val totalChunks = (pcm.size + chunkSize - 1) / chunkSize
-        val accumulated = StringBuilder()
+    ): Flow<SttResult> =
+        flow {
+            // Default implementation: chunk the PCM and emit partial results.
+            // Concrete engines with streaming support (e.g. Vosk) should override this
+            // for better latency.
+            val chunkSize = language.sampleRate / 2 // 500ms chunks
+            val totalChunks = (pcm.size + chunkSize - 1) / chunkSize
+            val accumulated = StringBuilder()
 
-        for (i in 0 until totalChunks) {
-            val start = i * chunkSize
-            val end = minOf(start + chunkSize, pcm.size)
-            val chunk = pcm.copyOfRange(start, end)
+            for (i in 0 until totalChunks) {
+                val start = i * chunkSize
+                val end = minOf(start + chunkSize, pcm.size)
+                val chunk = pcm.copyOfRange(start, end)
 
-            val partial = transcribe(chunk, language)
-            if (partial.text.isNotBlank()) {
-                accumulated.append(partial.text)
+                val partial = transcribe(chunk, language)
+                if (partial.text.isNotBlank()) {
+                    accumulated.append(partial.text)
+                }
+
+                val type = if (i == totalChunks - 1) SttResultType.FINAL else SttResultType.PARTIAL
+                emit(
+                    SttResult(
+                        text = accumulated.toString().trim(),
+                        type = type,
+                        language = language,
+                        confidence = partial.confidence,
+                    ),
+                )
             }
 
-            val type = if (i == totalChunks - 1) SttResultType.FINAL else SttResultType.PARTIAL
-            emit(
-                SttResult(
-                    text = accumulated.toString().trim(),
-                    type = type,
-                    language = language,
-                    confidence = partial.confidence,
-                ),
-            )
-        }
+            // If no chunks produced text, emit one empty final result
+            if (accumulated.isEmpty()) {
+                emit(SttResult.empty(language))
+            }
+        }.flowOn(Dispatchers.Default)
 
-        // If no chunks produced text, emit one empty final result
-        if (accumulated.isEmpty()) {
-            emit(SttResult.empty(language))
+    override suspend fun release() =
+        mutex.withLock {
+            if (!initialized) return@withLock
+            try {
+                releaseModel()
+            } catch (e: Exception) {
+                Log.w(TAG, "Model release error: ${e.message}")
+            }
+            _currentLanguage?.let { modelManager.markReleased(it) }
+            initialized = false
+            _config = null
+            _currentLanguage = null
+            Log.d(TAG, "Released")
         }
-    }.flowOn(Dispatchers.Default)
-
-    override suspend fun release() = mutex.withLock {
-        if (!initialized) return@withLock
-        try {
-            releaseModel()
-        } catch (e: Exception) {
-            Log.w(TAG, "Model release error: ${e.message}")
-        }
-        _currentLanguage?.let { modelManager.markReleased(it) }
-        initialized = false
-        _config = null
-        _currentLanguage = null
-        Log.d(TAG, "Released")
-    }
 
     // --- Protected extension points for concrete engine implementations ---
 
@@ -177,9 +181,10 @@ open class DefaultSttEngine(
      *
      * The default implementation returns an empty result. Override in concrete engines.
      */
-    protected open suspend fun inferPcm(pcm: ShortArray, language: SttLanguage): SttResult {
-        return SttResult.empty(language)
-    }
+    protected open suspend fun inferPcm(
+        pcm: ShortArray,
+        language: SttLanguage,
+    ): SttResult = SttResult.empty(language)
 
     /**
      * Release model resources. Called from [release]. The default implementation is a no-op.
@@ -194,7 +199,10 @@ open class DefaultSttEngine(
      * Validates PCM input. Returns null when valid (the caller proceeds), or a reason to short-circuit.
      * Follows the project's pattern of early-return validation rather than exceptions for expected cases.
      */
-    private fun validatePcm(pcm: ShortArray, language: SttLanguage): String? {
+    private fun validatePcm(
+        pcm: ShortArray,
+        language: SttLanguage,
+    ): String? {
         if (pcm.isEmpty()) {
             return "empty PCM buffer"
         }

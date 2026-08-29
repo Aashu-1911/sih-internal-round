@@ -34,7 +34,6 @@ import kotlinx.coroutines.flow.Flow
  * handles the result.
  */
 interface SttEngine {
-
     /**
      * Transcribe a complete audio buffer. Returns the final transcription once the entire buffer
      * has been processed. For streaming (partial results as audio arrives), use [transcribeStream].

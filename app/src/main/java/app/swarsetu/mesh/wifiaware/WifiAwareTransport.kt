@@ -611,11 +611,14 @@ class WifiAwareTransport(
     private fun checkWedge() {
         val now = SystemClock.elapsedRealtime()
         val healthy = hasHardware && _health.value == TransportHealth.Healthy && session != null
+        val reachableOwed = anyReachableSyncOwed()
+        val corroboratedOwed = anySyncOwed()
+
         val decision =
             NanWatchdogPolicy.decide(
                 healthy = healthy,
-                reachableOwed = anyReachableSyncOwed(), // Tier-1 / episode signal (uncorroborated)
-                corroboratedOwed = anySyncOwed(), // extra Tier-2 gate (corroborated)
+                reachableOwed = reachableOwed, // Tier-1 / episode signal (uncorroborated)
+                corroboratedOwed = corroboratedOwed, // extra Tier-2 gate (corroborated)
                 now = now,
                 syncOwedSince = syncOwedSince,
                 lastLinkOrAcceptAt = lastLinkOrAcceptAt,
@@ -626,6 +629,22 @@ class WifiAwareTransport(
                 wedgeRestartMs = WEDGE_RESTART_MS,
             )
         syncOwedSince = decision.nextSyncOwedSince
+
+        Log.d(
+            TAG,
+            """
+            NAN_WATCHDOG:
+            healthy=$healthy
+            reachableOwed=$reachableOwed
+            corroboratedOwed=$corroboratedOwed
+            owedFor=${if (syncOwedSince > 0) now - syncOwedSince else 0}ms
+            lastLinkOrAcceptAt=${now - lastLinkOrAcceptAt}ms ago
+            lastReattachAt=${now - lastReattachAt}ms ago
+            lastRestartAt=${now - lastRestartAt}ms ago
+            action=${decision.action}
+            """.trimIndent(),
+        )
+
         when (decision.action) {
             NanWatchdogPolicy.Action.None -> {}
 
@@ -641,7 +660,18 @@ class WifiAwareTransport(
                 lastRestartAt = now
                 Log.e(TAG, "NAN data plane wedged (sync owed ${now - syncOwedSince}ms with no link) — restarting process")
                 logState()
-                Process.killProcess(Process.myPid())
+
+                Log.e(
+                    TAG,
+                    "NAN_WATCHDOG_SELF_KILL: elapsed=${now}ms syncOwedFor=${now - syncOwedSince}ms corroborated=$corroboratedOwed peers=${peers.size} reachable=${reachablePeers.size} inFlight=${inFlight.size} sessionActive=${session != null} health=${_health.value}",
+                )
+
+                if (app.swarsetu.BuildConfig.DEBUG) {
+                    Log.w(TAG, "DEBUG BUILD: Skipping Process.killProcess(). Executing transport reattach instead.")
+                    reattach()
+                } else {
+                    Process.killProcess(Process.myPid())
+                }
             }
         }
     }

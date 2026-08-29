@@ -99,7 +99,11 @@ interface MeshController {
         recipientId: String? = null,
         group: GroupInfo? = null,
         replyTo: ReplyRef? = null,
-        voiceTextLanguage: String? = null,
+        messageType: Int = app.swarsetu.data.message.MessageEntity.TYPE_NORMAL_TEXT,
+        sourceLanguage: String? = null,
+        targetLanguage: String? = null,
+        sourceText: String? = null,
+        translatedText: String? = null,
         isAlert: Boolean = false,
         messageId: String? = null,
     ): Boolean

@@ -8,17 +8,17 @@ import org.junit.Test
 
 /** Unit tests for [SttModelInfo] and [SttException]. */
 class SttModelInfoTest {
-
     // --- SttModelInfo ---
 
     @Test
     fun `available model reports size correctly`() {
-        val info = SttModelInfo(
-            language = SttLanguage.ENGLISH,
-            modelPath = "stt-en",
-            sizeBytes = 50_000_000,
-            available = true,
-        )
+        val info =
+            SttModelInfo(
+                language = SttLanguage.ENGLISH,
+                modelPath = "stt-en",
+                sizeBytes = 50_000_000,
+                available = true,
+            )
         assertEquals(50_000_000L, info.sizeBytes)
         assertTrue(info.available)
         assertEquals(50_000_000.0 / (1024.0 * 1024.0), info.sizeMb, 0.1)
@@ -26,11 +26,12 @@ class SttModelInfoTest {
 
     @Test
     fun `unavailable model has negative size`() {
-        val info = SttModelInfo(
-            language = SttLanguage.HINDI,
-            modelPath = "stt-hi",
-            available = false,
-        )
+        val info =
+            SttModelInfo(
+                language = SttLanguage.HINDI,
+                modelPath = "stt-hi",
+                available = false,
+            )
         assertEquals(-1L, info.sizeBytes)
         assertFalse(info.available)
         assertEquals(-1.0, info.sizeMb, 0.001)
@@ -46,11 +47,12 @@ class SttModelInfoTest {
 
     @Test
     fun `model info copy works`() {
-        val original = SttModelInfo(
-            language = SttLanguage.ENGLISH,
-            modelPath = "stt-en",
-            available = true,
-        )
+        val original =
+            SttModelInfo(
+                language = SttLanguage.ENGLISH,
+                modelPath = "stt-en",
+                available = true,
+            )
         val modified = original.copy(available = false)
         assertFalse(modified.available)
         assertEquals(original.language, modified.language)
@@ -100,14 +102,15 @@ class SttModelInfoTest {
 
     @Test
     fun `all exceptions are SttException subclasses`() {
-        val exceptions: List<SttException> = listOf(
-            SttException.ModelLoadError("x"),
-            SttException.UnsupportedLanguage(SttLanguage.ENGLISH),
-            SttException.InferenceError(),
-            SttException.EngineNotReady(),
-            SttException.AudioInputError(),
-            SttException.OutOfMemory(),
-        )
+        val exceptions: List<SttException> =
+            listOf(
+                SttException.ModelLoadError("x"),
+                SttException.UnsupportedLanguage(SttLanguage.ENGLISH),
+                SttException.InferenceError(),
+                SttException.EngineNotReady(),
+                SttException.AudioInputError(),
+                SttException.OutOfMemory(),
+            )
         exceptions.forEach { e ->
             assertTrue("All should be SttException", e is SttException)
             assertTrue("All should be Exception", e is Exception)

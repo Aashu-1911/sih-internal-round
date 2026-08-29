@@ -14,9 +14,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Bridges the local STT pipeline to the Mesh network.
- * 
+ *
  * When a voice message is initiated, this adapter configures the routing context.
- * As soon as the STT pipeline produces a final, usable result, the adapter composes and 
+ * As soon as the STT pipeline produces a final, usable result, the adapter composes and
  * originates a new chat message over the mesh.
  */
 class VoiceMessageAdapter(
@@ -24,8 +24,11 @@ class VoiceMessageAdapter(
     private val sttPipeline: SttPipeline,
     private val meshController: MeshController,
     private val voiceController: VoiceConversationController,
+    private val translatorEngine: app.swarsetu.translation.TranslatorEngine,
+    private val peers: app.swarsetu.data.PeerRepository,
 ) {
     private data class RoutingContext(
+        val language: SttLanguage,
         val recipientId: String?,
         val group: GroupInfo?,
         val replyTo: ReplyRef?,
@@ -56,17 +59,11 @@ class VoiceMessageAdapter(
         replyTo: ReplyRef? = null,
         isAlert: Boolean = false,
     ) {
-        currentContext.set(RoutingContext(recipientId, group, replyTo, isAlert))
-        if (sttPipeline.canCapture) {
-            sttPipeline.startCapture(language)
-        }
+        currentContext.set(RoutingContext(language, recipientId, group, replyTo, isAlert))
     }
 
-    /**
-     * Stops listening. If a final result was already captured, it will still be processed.
-     */
     fun stopVoiceMessage() {
-        sttPipeline.stopCapture()
+        currentContext.set(null)
     }
 
     private suspend fun handleSttResult(result: SttResult) {
@@ -79,35 +76,62 @@ class VoiceMessageAdapter(
         voiceController.reportSttLatency(t0, t1)
 
         val context = currentContext.get() ?: return
-        val ttsLanguage = result.language.toTtsLanguage() ?: return
-        
+        val sourceLanguage = context.language.code.lowercase()
+
+        var targetLanguage: String? = null
+        var translatedText: String? = null
+
+        if (context.recipientId != null && context.group == null) {
+            val peer = peers.find(context.recipientId)
+            val rawTarget = peer?.preferredLanguage?.lowercase() ?: sourceLanguage
+            targetLanguage = translatorEngine.normalizeToLanguageTag(rawTarget) ?: rawTarget
+            val normalizedSource = translatorEngine.normalizeToLanguageTag(sourceLanguage) ?: sourceLanguage
+            
+            if (targetLanguage != normalizedSource) {
+                val protectedNouns = listOfNotNull(peer?.name)
+                translatedText = translatorEngine.translate(result.text, normalizedSource, targetLanguage, protectedNouns)
+            }
+        }
+
         val t2 = System.currentTimeMillis()
 
         // Calculate payload size by simulating exactly what MeshController builds
-        val content = MessageContent(
-            body = result.text,
-            replyTo = context.replyTo,
-            voiceTextLanguage = ttsLanguage.name,
-            isAlert = if (context.isAlert) true else null
-        )
+        val outboundText = translatedText ?: result.text
+        val content =
+            MessageContent(
+                body = outboundText,
+                replyTo = context.replyTo,
+                messageType = app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE,
+                sourceLanguage = sourceLanguage,
+                targetLanguage = targetLanguage,
+                sourceText = result.text,
+                translatedText = translatedText,
+                isAlert = if (context.isAlert) true else null,
+            )
         val payloadSizeBytes = content.encode().size
-        
+
         val messageId = UUID.randomUUID().toString()
         val t3 = System.currentTimeMillis()
-        
+
         voiceController.reportOutboundMessageMetrics(messageId, payloadSizeBytes, t2, t3)
 
+        val voiceTextLanguage = sourceLanguage
         meshController.sendChat(
-            text = result.text,
+            text = outboundText,
             recipientId = context.recipientId,
             group = context.group,
             replyTo = context.replyTo,
-            voiceTextLanguage = ttsLanguage.name,
+            messageType = app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE,
+            sourceLanguage = voiceTextLanguage,
+            targetLanguage = targetLanguage,
+            sourceText = result.text,
+            translatedText = translatedText,
             isAlert = context.isAlert,
-            messageId = messageId
+            messageId = messageId,
         )
-        
-        // Clear context after successful transmission to prevent accidental re-sends.
+
+        // Clear context and disable mesh after successful transmission to prevent accidental re-sends.
         currentContext.set(null)
+        voiceController.isMeshEnabled = false
     }
 }
