@@ -6,7 +6,7 @@ iTantra -Indian Multilingual TTS & STT Aided Neural Transceiver Radio Access for
 
 **SwarSetu** is an offline, serverless multilingual speech transceiver app for Android, designed to satisfy **ISRO Problem Statement 26173 (iTantra - Indian Multilingual TTS & STT Aided Neural Transceiver Radio Access for Low Bitrate Links)**.
 
-By integrating local, offline neural network models for Speech-to-Text (STT) and Text-to-Speech (TTS) with a decentralized dual-radio mesh networking layer (derived from the `Knit` transport), SwarSetu enables low-latency, low-bitrate, off-grid voice communication across nearby devices without internet, cellular service, or centralized infrastructure.
+By integrating local, offline neural network models for Speech-to-Text (STT) and Text-to-Speech (TTS) with a decentralized dual-radio mesh networking layer , SwarSetu enables low-latency, low-bitrate, off-grid voice communication across nearby devices without internet, cellular service, or centralized infrastructure.
 
 ---
 
@@ -25,7 +25,7 @@ Phone A (Voice)
     ↓
 [Sentence Formation & Compression]
     ↓
-[Low-Bitrate Text Message (CBOR/Knit Protocol)]
+[Low-Bitrate Text Message (CBOR)]
     ↓
 [Mesh Transport (Wi-Fi Aware + Bluetooth LE)]
     ↓  (hop-by-hop relay)
@@ -99,7 +99,5 @@ To execute all local unit tests (100% pass target):
 
 ---
 
-## 📄 License and Attributions
 
-SwarSetu is built on top of the open-source Knit project and maintains all upstream licenses, copyrights, and notices. Upstream codebases and libraries are appropriately attributed under their respective licenses.
 >>>>>>> 4f7bef8 (first commit)
