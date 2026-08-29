@@ -147,6 +147,26 @@ class ProfileViewModel(
         settings.contentFilteringEnabled
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
+    val themePreference: StateFlow<String> =
+        settings.themePreference
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "system")
+
+    val autoPlayTts: StateFlow<Boolean> =
+        settings.autoPlayTts
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    fun setThemePreference(theme: String) {
+        viewModelScope.launch {
+            settings.setThemePreference(theme)
+        }
+    }
+
+    fun setAutoPlayTts(enabled: Boolean) {
+        viewModelScope.launch {
+            settings.setAutoPlayTts(enabled)
+        }
+    }
+
     /**
      * Summary of the Internet (spool) plane for the row that navigates to its own screen — the switch
      * itself lives there now, with the relay-list editor it needs to be actionable.

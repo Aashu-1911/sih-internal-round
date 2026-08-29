@@ -289,14 +289,6 @@ internal fun ChatListScreenContent(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.donate_title)) },
-                                leadingIcon = { Icon(Icons.Filled.Favorite, contentDescription = null) },
-                                onClick = {
-                                    menuOpen = false
-                                    onOpenDonate()
-                                },
-                            )
-                            DropdownMenuItem(
                                 text = { Text(stringResource(R.string.share_app_menu)) },
                                 leadingIcon = { Icon(Icons.Filled.DownloadForOffline, contentDescription = null) },
                                 onClick = {

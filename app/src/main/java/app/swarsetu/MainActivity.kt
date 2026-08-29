@@ -7,6 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.IntentCompat
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.swarsetu.data.settings.SettingsStore
 import app.swarsetu.ui.RouteInbox
 import app.swarsetu.ui.SwarSetuApp
 import app.swarsetu.ui.share.ShareInbox
@@ -21,6 +25,8 @@ class MainActivity : ComponentActivity() {
     // Single-shot holder for a notification-tap deep-link route (e.g. "chat/<id>"); SwarSetuApp drains it.
     private val routeInbox: RouteInbox by inject()
 
+    private val settingsStore: SettingsStore by inject()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -28,10 +34,6 @@ class MainActivity : ComponentActivity() {
         handleShareIntent(intent)
         // A cold-start notification tap: stage its deep-link route so SwarSetuApp navigates to that thread.
         handleRouteIntent(intent)
-        // Debug builds honor a deep-link route extra so screenshots (demo builds) and automation agents
-        // (any debug build, over the real mesh) can jump straight to a screen, e.g.
-        // `adb shell am start -n app.swarsetu/.MainActivity --es demo_route chat/nearby`. Gated to
-        // debug so release never reads it. (Demo builds still swap in DemoTransport via SEED_DEMO.)
         val startRoute =
             if (BuildConfig.SEED_DEMO || BuildConfig.DEBUG) {
                 intent?.getStringExtra(EXTRA_DEMO_ROUTE)
@@ -39,7 +41,13 @@ class MainActivity : ComponentActivity() {
                 null
             }
         setContent {
-            SwarSetuTheme {
+            val themeMode by settingsStore.themePreference.collectAsStateWithLifecycle(initialValue = "system")
+            val isDark = when (themeMode) {
+                "dark" -> true
+                "light" -> false
+                else -> isSystemInDarkTheme()
+            }
+            SwarSetuTheme(darkTheme = isDark) {
                 SwarSetuApp(startRoute = startRoute)
             }
         }

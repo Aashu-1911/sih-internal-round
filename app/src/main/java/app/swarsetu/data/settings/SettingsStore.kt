@@ -24,6 +24,8 @@ class SettingsStore(
     val isLanguageInitComplete: Flow<Boolean> = dataStore.data.map { it[KEY_LANGUAGE_INIT_COMPLETE] ?: false }
     val isProfileSetupComplete: Flow<Boolean> = dataStore.data.map { it[KEY_PROFILE_SETUP_COMPLETE] ?: false }
     val sttLanguageCode: Flow<String> = dataStore.data.map { it[KEY_STT_LANGUAGE] ?: "hi" }
+    val themePreference: Flow<String> = dataStore.data.map { it[KEY_THEME_PREFERENCE] ?: "system" }
+    val autoPlayTts: Flow<Boolean> = dataStore.data.map { it[KEY_AUTO_PLAY_TTS] ?: true }
 
     /** Bumped whenever the avatar image changes, so profile re-broadcasts can be triggered. */
     val avatarUpdatedAt: Flow<Long> = dataStore.data.map { it[KEY_AVATAR_UPDATED_AT] ?: 0L }
@@ -293,6 +295,10 @@ class SettingsStore(
 
     suspend fun setSttLanguageCode(code: String) = setSttLanguage(code)
 
+    suspend fun setThemePreference(theme: String) = dataStore.edit { it[KEY_THEME_PREFERENCE] = theme }
+
+    suspend fun setAutoPlayTts(enabled: Boolean) = dataStore.edit { it[KEY_AUTO_PLAY_TTS] = enabled }
+
     /** Dynamic per-conversation read-watermark key, e.g. "last_read_nearby" / "last_read_<nodeId>". */
     private fun lastReadKey(conversationId: String) = longPreferencesKey(LAST_READ_PREFIX + conversationId)
 
@@ -320,5 +326,7 @@ class SettingsStore(
         val KEY_LANGUAGE_INIT_COMPLETE = booleanPreferencesKey("language_init_complete")
         val KEY_PROFILE_SETUP_COMPLETE = booleanPreferencesKey("profile_setup_complete")
         val KEY_STT_LANGUAGE = stringPreferencesKey("stt_language")
+        val KEY_THEME_PREFERENCE = stringPreferencesKey("theme_preference")
+        val KEY_AUTO_PLAY_TTS = booleanPreferencesKey("auto_play_tts")
     }
 }

@@ -8,11 +8,17 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import app.swarsetu.ui.chat.components.ChatBackground
+import app.swarsetu.ui.chat.components.EmptyChatState
+import app.swarsetu.ui.chat.components.DateSeparator
+import app.swarsetu.ui.chat.components.TranslatedVoiceMessageBubble
+import app.swarsetu.ui.theme.SwarSetuTheme
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.content.MediaType
@@ -759,87 +765,78 @@ internal fun ChatScreenContent(
             )
         },
     ) { padding ->
-        // Column rather than a list item so the relay notice stays pinned: it states a standing fact
-        // about the whole thread, and one that scrolled away would be found only by accident.
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            RelayNotice(reach = state.relayReach, onClick = { showRelayInfo = true })
-            // weight(1f), not fillMaxSize(): the notice above is an unweighted sibling, so the list must
-            // take the space that is left rather than ask for the whole column.
-            if (state.rows.isEmpty() && state.typingPeers.isEmpty()) {
-                EmptyState(modifier = Modifier.fillMaxWidth().weight(1f))
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    contentPadding =
-                        androidx.compose.foundation.layout
-                            .PaddingValues(12.dp),
-                    // Bottom-anchored so the thread opens on the newest message with no scroll; the data is
-                    // reversed to match, making index 0 the newest row, drawn at the bottom. Arrangement.Bottom
-                    // keeps a short thread (fewer rows than fit on screen) resting just above the input rather
-                    // than floating at the top with a gap beneath the newest bubble.
-                    verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom),
-                    reverseLayout = true,
-                ) {
-                    // Reverse layout: the first item is drawn at the visual bottom, so the typing indicator sits
-                    // directly above the input and below the newest message (Signal-style, scrolls with content).
-                    if (state.typingPeers.isNotEmpty()) {
-                        item(key = "typing_indicator") {
-                            TypingIndicatorRow(peers = state.typingPeers)
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            ChatBackground()
+            Column(modifier = Modifier.fillMaxSize()) {
+                RelayNotice(reach = state.relayReach, onClick = { showRelayInfo = true })
+                if (state.rows.isEmpty() && state.typingPeers.isEmpty()) {
+                    EmptyChatState(modifier = Modifier.fillMaxWidth().weight(1f))
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        contentPadding =
+                            androidx.compose.foundation.layout
+                                .PaddingValues(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom),
+                        reverseLayout = true,
+                    ) {
+                        if (state.typingPeers.isNotEmpty()) {
+                            item(key = "typing_indicator") {
+                                TypingIndicatorRow(peers = state.typingPeers)
+                            }
                         }
-                    }
-                    items(state.rows.asReversed(), key = { it.id }) { row ->
-                        if (row.kind == MessageEntity.KIND_MEMBER_LEFT) {
-                            SystemNotice(stringResource(R.string.chat_group_member_left, row.senderName))
-                        } else {
-                            MessageBubble(
-                                row,
-                                now = now,
-                                // In a 1:1 DM the peer's name is in the top bar, so don't repeat it on every
-                                // received bubble; show it only where multiple people can speak.
-                                showSenderName = state.isRoom || state.isGroup,
-                                myNodeId = state.myNodeId,
-                                imageRatios = imageRatios,
-                                highlighted = row.id == highlightedMessageId,
-                                onImageClick = { fullscreenImage = it },
-                                onOpenProfile = onOpenProfile,
-                                onReact = onReact,
-                                onReply = { msg ->
-                                    onStartReply(
-                                        ReplyRef(
-                                            messageId = msg.id,
-                                            authorId = msg.senderNodeId,
-                                            author = msg.senderName,
-                                            snippet =
-                                                buildReplySnippet(
-                                                    msg.body,
-                                                    msg.moderationFlagged,
-                                                    voiceLabel =
-                                                        voiceQuoteLabel.takeIf {
-                                                            VoiceAudio.isVoice(msg.attachmentMime)
-                                                        },
-                                                ),
-                                            hasAttachment = msg.attachmentHash != null,
-                                        ),
-                                    )
-                                },
-                                onQuoteClick = { targetId ->
-                                    val idx = state.rows.asReversed().indexOfFirst { it.id == targetId }
-                                    if (idx >= 0) {
-                                        highlightedMessageId = targetId
-                                        scrollScope.launch { listState.animateScrollToItem(idx) }
-                                    }
-                                },
-                                onDelete = onDeleteMessage,
-                                onBlock = onBlock,
-                                onCopy = onCopy,
-                                onReplayTts = onReplayTts,
-                                onOpenMessageDetails = onOpenMessageDetails,
-                                onExplainRelay = { relayMarkerExplained = it },
-                                voicePlayback = voicePlayback,
-                                onVoicePlay = onVoicePlay,
-                                onVoiceSeek = onVoiceSeek,
-                            )
+                        items(state.rows.asReversed(), key = { it.id }) { row ->
+                            if (row.kind == MessageEntity.KIND_MEMBER_LEFT) {
+                                SystemNotice(stringResource(R.string.chat_group_member_left, row.senderName))
+                            } else {
+                                MessageBubble(
+                                    row,
+                                    now = now,
+                                    showSenderName = state.isRoom || state.isGroup,
+                                    myNodeId = state.myNodeId,
+                                    imageRatios = imageRatios,
+                                    highlighted = row.id == highlightedMessageId,
+                                    onImageClick = { fullscreenImage = it },
+                                    onOpenProfile = onOpenProfile,
+                                    onReact = onReact,
+                                    onReply = { msg ->
+                                        onStartReply(
+                                            ReplyRef(
+                                                messageId = msg.id,
+                                                authorId = msg.senderNodeId,
+                                                author = msg.senderName,
+                                                snippet =
+                                                    buildReplySnippet(
+                                                        msg.body,
+                                                        msg.moderationFlagged,
+                                                        voiceLabel =
+                                                            voiceQuoteLabel.takeIf {
+                                                                VoiceAudio.isVoice(msg.attachmentMime)
+                                                            },
+                                                    ),
+                                                hasAttachment = msg.attachmentHash != null,
+                                            ),
+                                        )
+                                    },
+                                    onQuoteClick = { targetId ->
+                                        val idx = state.rows.asReversed().indexOfFirst { it.id == targetId }
+                                        if (idx >= 0) {
+                                            highlightedMessageId = targetId
+                                            scrollScope.launch { listState.animateScrollToItem(idx) }
+                                        }
+                                    },
+                                    onDelete = onDeleteMessage,
+                                    onBlock = onBlock,
+                                    onCopy = onCopy,
+                                    onReplayTts = onReplayTts,
+                                    onOpenMessageDetails = onOpenMessageDetails,
+                                    onExplainRelay = { relayMarkerExplained = it },
+                                    voicePlayback = voicePlayback,
+                                    onVoicePlay = onVoicePlay,
+                                    onVoiceSeek = onVoiceSeek,
+                                )
+                            }
                         }
                     }
                 }
@@ -1101,30 +1098,20 @@ private fun MessageBubble(
         // the long-press picker popup directly above the bubble.
         Column(horizontalAlignment = if (row.mine) Alignment.End else Alignment.Start) {
             Box {
+                val baseBubbleBg = if (row.mine) SwarSetuTheme.chatColors.outgoingBubble else SwarSetuTheme.chatColors.incomingBubble
+                val bubbleBorder = if (row.mine) SwarSetuTheme.chatColors.outgoingBubbleBorder else SwarSetuTheme.chatColors.incomingBubbleBorder
+                val bubbleContentColor = if (row.mine) SwarSetuTheme.chatColors.outgoingText else SwarSetuTheme.chatColors.incomingText
+                
                 Surface(
-                    color =
-                        lerp(
-                            if (row.mine) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            MaterialTheme.colorScheme.primary,
-                            0.22f * highlight,
-                        ),
-                    contentColor =
-                        if (row.mine) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                    color = lerp(baseBubbleBg, MaterialTheme.colorScheme.primary, 0.22f * highlight),
+                    contentColor = bubbleContentColor,
                     shape = bubbleShape,
+                    border = BorderStroke(1.dp, bubbleBorder),
+                    shadowElevation = 0.5.dp,
                     modifier =
                         Modifier
                             .widthIn(max = maxBubbleWidth)
                             .combinedClickable(
-                                // Tap only reveals a moderation-collapsed message; otherwise no tap action
-                                // (and no ripple). Long-press opens the reaction picker.
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
                                 onClick = { if (row.moderationFlagged && !revealed) revealed = true },
@@ -1246,33 +1233,41 @@ private fun MessageBubble(
                                         row.targetLanguage != null
 
                                 if (isVoiceOrTranslated) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(top = 4.dp),
-                                    ) {
-                                        IconButton(
-                                            onClick = {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = SwarSetuTheme.chatColors.voiceBadgeBackground,
+                                        modifier = Modifier
+                                            .padding(top = 6.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
                                                 val textToSpeak = if (row.mine) (row.sourceText ?: displayText) else (row.translatedText ?: displayText)
                                                 val langToSpeak = if (row.mine) (row.sourceLanguage ?: "en") else (row.targetLanguage ?: row.sourceLanguage ?: "hi")
                                                 onReplayTts(textToSpeak, langToSpeak)
                                             },
-                                            modifier = Modifier.size(28.dp),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                         ) {
                                             Icon(
                                                 Icons.Filled.PlayArrow,
                                                 contentDescription = stringResource(R.string.chat_play_voice_desc),
-                                                tint = MaterialTheme.colorScheme.primary,
+                                                tint = SwarSetuTheme.chatColors.voiceBadgeText,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                            Spacer(Modifier.width(4.dp))
+                                            Text(
+                                                text = if (row.mine) {
+                                                    stringResource(R.string.chat_voice_note_badge, row.sourceLanguage?.uppercase() ?: "AUDIO")
+                                                } else {
+                                                    stringResource(R.string.chat_translated_badge, row.targetLanguage?.uppercase() ?: row.sourceLanguage?.uppercase() ?: "AUDIO")
+                                                },
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = SwarSetuTheme.chatColors.voiceBadgeText,
+                                                ),
                                             )
                                         }
-                                        Text(
-                                            text = if (row.mine) {
-                                                stringResource(R.string.chat_voice_note_badge, row.sourceLanguage?.uppercase() ?: "AUDIO")
-                                            } else {
-                                                stringResource(R.string.chat_translated_badge, row.targetLanguage?.uppercase() ?: row.sourceLanguage?.uppercase() ?: "AUDIO")
-                                            },
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
                                     }
                                 }
                             }
@@ -2277,7 +2272,8 @@ private fun MessageInput(
                             .weight(1f)
                             .heightIn(min = 48.dp)
                             .clip(RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(BorderStroke(1.dp, SwarSetuTheme.chatColors.composerBorder), RoundedCornerShape(24.dp)),
                     verticalAlignment = Alignment.Bottom,
                 ) {
                     if (voiceRecording != null) {

@@ -7,6 +7,7 @@ package app.swarsetu.ui.profile
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -105,6 +106,8 @@ internal data class ProfileFormState(
     val installedLanguages: Set<SttLanguage> = emptySet(),
     val downloadingLanguage: SttLanguage? = null,
     val downloadProgress: Float = 0f,
+    val themePreference: String = "system",
+    val autoPlayTts: Boolean = true,
 )
 
 @Composable
@@ -127,6 +130,8 @@ fun ProfileScreen(
     val installedLanguages by viewModel.installedLanguages.collectAsStateWithLifecycle()
     val downloadingLanguage by viewModel.downloadingLanguage.collectAsStateWithLifecycle()
     val downloadProgress by viewModel.downloadProgress.collectAsStateWithLifecycle()
+    val themePreference by viewModel.themePreference.collectAsStateWithLifecycle()
+    val autoPlayTts by viewModel.autoPlayTts.collectAsStateWithLifecycle()
 
     // Navigate back only once Save has finished persisting (the write outlives this composition because
     // it runs in viewModelScope, but we wait so the user lands back on the previous screen on success).
@@ -165,6 +170,8 @@ fun ProfileScreen(
                 installedLanguages = installedLanguages,
                 downloadingLanguage = downloadingLanguage,
                 downloadProgress = downloadProgress,
+                themePreference = themePreference,
+                autoPlayTts = autoPlayTts,
             ),
         batteryExempt = rememberBatteryExempt(),
         onBack = onBack,
@@ -175,6 +182,8 @@ fun ProfileScreen(
         onToggleContentFiltering = viewModel::setContentFilteringEnabled,
         onLanguageChange = viewModel::setPreferredLanguage,
         onDownloadModel = viewModel::downloadModel,
+        onThemeChange = viewModel::setThemePreference,
+        onAutoPlayTtsChange = viewModel::setAutoPlayTts,
         onOpenRelays = onOpenRelays,
         onPickPhoto = {
             picker.launch(
@@ -200,9 +209,9 @@ internal fun ProfileScreenContent(
     onToggleContentFiltering: (Boolean) -> Unit,
     onLanguageChange: (SttLanguage) -> Unit = {},
     onDownloadModel: (SttLanguage) -> Unit = {},
+    onThemeChange: (String) -> Unit = {},
+    onAutoPlayTtsChange: (Boolean) -> Unit = {},
     onOpenRelays: () -> Unit,
-    // Whether the Internet-relay plane is introduced at all in this build. A parameter rather than a
-    // bare BuildConfig read so the hidden case is previewable and testable; see app/build.gradle.kts.
     showInternetRelays: Boolean = BuildConfig.INTERNET_PLANE,
     onPickPhoto: () -> Unit,
     onClearPhoto: () -> Unit,
@@ -212,7 +221,12 @@ internal fun ProfileScreenContent(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
+                title = {
+                    Text(
+                        text = stringResource(R.string.settings_title),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.action_back))
@@ -231,6 +245,7 @@ internal fun ProfileScreenContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            // --- 1. Avatar Header ---
             Box {
                 Avatar(
                     avatarHash = form.avatarHash,
@@ -242,77 +257,256 @@ internal fun ProfileScreenContent(
                     contentDescription = stringResource(R.string.profile_change_photo_desc),
                     onClick = onPickPhoto,
                 )
-                // Only offer "remove" when a photo is set. This also covers a dangling hash whose blob is
-                // gone (the avatar shows the initial fallback, but the hash is still non-null), giving the
-                // user a way to drop it.
                 if (form.avatarHash != null) {
                     RemovePhotoButton(onClick = onClearPhoto)
                 }
             }
 
-            OutlinedTextField(
-                value = form.name,
-                onValueChange = onNameChange,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .testTag("profile_name")
-                        .onFocusChanged { if (!it.isFocused) onNameCommit() },
-                label = { Text(stringResource(R.string.profile_display_name_label)) },
-                placeholder = { Text(form.alias) },
-                singleLine = true,
-                supportingText = { CharCounter(form.name.length, TextLimits.DISPLAY_NAME) },
-            )
-            OutlinedTextField(
-                value = form.status,
-                onValueChange = onStatusChange,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .testTag("profile_status")
-                        .onFocusChanged { if (!it.isFocused) onStatusCommit() },
-                label = { Text(stringResource(R.string.profile_status_label)) },
-                singleLine = true,
-                supportingText = { CharCounter(form.status.length, TextLimits.STATUS) },
-            )
-            Text(
-                text = stringResource(R.string.profile_node_id, form.nodeId),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            // --- 2. Account Profile Card ---
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "ACCOUNT",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
 
-            PreferredLanguageSection(
-                selectedLanguage = form.preferredLanguage,
-                allLanguages = form.availableLanguages,
-                installedLanguages = form.installedLanguages,
-                onLanguageChange = onLanguageChange,
-            )
+                    OutlinedTextField(
+                        value = form.name,
+                        onValueChange = onNameChange,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("profile_name")
+                                .onFocusChanged { if (!it.isFocused) onNameCommit() },
+                        label = { Text(stringResource(R.string.profile_display_name_label)) },
+                        placeholder = { Text(form.alias) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        supportingText = { CharCounter(form.name.length, TextLimits.DISPLAY_NAME) },
+                    )
+                    OutlinedTextField(
+                        value = form.status,
+                        onValueChange = onStatusChange,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .testTag("profile_status")
+                                .onFocusChanged { if (!it.isFocused) onStatusCommit() },
+                        label = { Text(stringResource(R.string.profile_status_label)) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        supportingText = { CharCounter(form.status.length, TextLimits.STATUS) },
+                    )
+                    Text(
+                        text = stringResource(R.string.profile_node_id, form.nodeId),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
-            ActiveVoiceModelSection(
-                language = form.preferredLanguage,
-                isInstalled = form.installedLanguages.contains(form.preferredLanguage),
-                isDownloading = form.downloadingLanguage == form.preferredLanguage,
-                downloadProgress = form.downloadProgress,
-                onDownload = { onDownloadModel(form.preferredLanguage) },
-            )
+            // --- 3. Appearance Card ---
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "APPEARANCE",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
 
-            ContentFilteringRow(
-                enabled = form.contentFilteringEnabled,
-                onToggle = onToggleContentFiltering,
-            )
+                    AppearanceSelectorRow(
+                        currentTheme = form.themePreference,
+                        onThemeSelect = onThemeChange,
+                    )
+                }
+            }
 
-            if (showInternetRelays) InternetRelayRow(summary = form.relay, onClick = onOpenRelays)
+            // --- 4. Voice & Translation Card ---
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "VOICE & TRANSLATION",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
 
-            BatteryOptimizationRow(exempt = batteryExempt, onAllow = onAllowBattery)
+                    PreferredLanguageSection(
+                        selectedLanguage = form.preferredLanguage,
+                        allLanguages = form.availableLanguages,
+                        installedLanguages = form.installedLanguages,
+                        onLanguageChange = onLanguageChange,
+                    )
 
+                    ActiveVoiceModelSection(
+                        language = form.preferredLanguage,
+                        isInstalled = form.installedLanguages.contains(form.preferredLanguage),
+                        isDownloading = form.downloadingLanguage == form.preferredLanguage,
+                        downloadProgress = form.downloadProgress,
+                        onDownload = { onDownloadModel(form.preferredLanguage) },
+                    )
+
+                    AutoPlayTtsRow(
+                        enabled = form.autoPlayTts,
+                        onToggle = onAutoPlayTtsChange,
+                    )
+                }
+            }
+
+            // --- 5. Connection & Privacy Card ---
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "CONNECTION & SECURITY",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
+
+                    ContentFilteringRow(
+                        enabled = form.contentFilteringEnabled,
+                        onToggle = onToggleContentFiltering,
+                    )
+
+                    if (showInternetRelays) InternetRelayRow(summary = form.relay, onClick = onOpenRelays)
+
+                    BatteryOptimizationRow(exempt = batteryExempt, onAllow = onAllowBattery)
+                }
+            }
+
+            // --- 6. Save Button ---
             Button(
                 onClick = onSave,
                 enabled = form.isDirty,
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth().testTag("profile_save"),
             ) {
-                Text(stringResource(R.string.action_save))
+                Text(
+                    text = stringResource(R.string.action_save),
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun AppearanceSelectorRow(
+    currentTheme: String,
+    onThemeSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val options = listOf(
+        "system" to "System",
+        "light" to "Light",
+        "dark" to "Dark",
+    )
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { (key, label) ->
+            val isSelected = currentTheme.equals(key, ignoreCase = true)
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                border = BorderStroke(
+                    1.dp,
+                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onThemeSelect(key) },
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.padding(vertical = 10.dp),
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoPlayTtsRow(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onToggle(!enabled) }
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Auto-play Translated Voice",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "Automatically speak incoming voice messages in your preferred language",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = onToggle,
+        )
     }
 }
 
