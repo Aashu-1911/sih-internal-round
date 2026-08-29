@@ -6,6 +6,7 @@
 /captures
 .externalNativeBuild
 .cxx
+.kiro
 local.properties
 # Release signing & secrets — never commit signing keys, keystores, or credentials (see
 # keystore.properties.example). The blanket key/cert globs also stop a stray app-signing key or
