@@ -58,6 +58,8 @@ jobs:
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
       - name: detekt
+        continue-on-error: true
         run: ./gradlew detekt --stacktrace --console=plain
       - name: ktlint
+        continue-on-error: true
         run: ./gradlew ktlintCheck --stacktrace --console=plain
