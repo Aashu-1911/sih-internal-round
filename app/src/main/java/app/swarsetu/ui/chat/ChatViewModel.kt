@@ -519,7 +519,8 @@ class ChatViewModel(
                 val outgoingReply = normalizeSelfAuthor(replyTo)
                 val group = if (isRoom) null else groups.find(conversationId)
 
-                val myLang = selectedSttLanguage.value.code.lowercase()
+                val detectedScript = translatorEngine.detectLanguageFromScript(trimmed)
+                val myLang = (detectedScript ?: selectedSttLanguage.value.code).lowercase()
                 var sourceLang: String? = myLang
                 var targetLang: String? = null
                 var translatedText: String? = null

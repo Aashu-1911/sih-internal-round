@@ -131,41 +131,103 @@ class AndroidTtsEngine(
         )
     }
 
+    private fun getCandidateLocales(language: TtsLanguage): List<java.util.Locale> {
+        val langCode = language.locale.language.lowercase()
+        return when (langCode) {
+            "en" -> listOf(
+                language.locale,
+                java.util.Locale.US,
+                java.util.Locale.UK,
+                java.util.Locale.ENGLISH,
+                java.util.Locale.forLanguageTag("en-IN"),
+                java.util.Locale.getDefault(),
+            )
+            "mr" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("mr-IN"),
+                java.util.Locale("mr"),
+                java.util.Locale.forLanguageTag("hi-IN"),
+                java.util.Locale("hi"),
+            )
+            "hi" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("hi-IN"),
+                java.util.Locale("hi"),
+            )
+            "gu" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("gu-IN"),
+                java.util.Locale("gu"),
+            )
+            "bn" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("bn-IN"),
+                java.util.Locale("bn"),
+            )
+            "ta" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("ta-IN"),
+                java.util.Locale("ta"),
+            )
+            "te" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("te-IN"),
+                java.util.Locale("te"),
+            )
+            "kn" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("kn-IN"),
+                java.util.Locale("kn"),
+            )
+            "ml" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("ml-IN"),
+                java.util.Locale("ml"),
+            )
+            "or" -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag("or-IN"),
+                java.util.Locale("or"),
+                java.util.Locale.forLanguageTag("hi-IN"),
+            )
+            else -> listOf(
+                language.locale,
+                java.util.Locale.forLanguageTag(langCode),
+                java.util.Locale(langCode),
+            )
+        }.distinct()
+    }
+
     override fun isLanguageAvailable(language: TtsLanguage): TtsLanguageCapability {
         if (!isReady || tts == null) return TtsLanguageCapability.Error("TTS Engine not ready")
 
-        val availableVoices = tts?.voices.orEmpty()
-        val matchingVoice = availableVoices.firstOrNull { v ->
-            v.locale.language.equals(language.locale.language, ignoreCase = true)
-        }
-
-        var result = tts?.isLanguageAvailable(language.locale) ?: TextToSpeech.LANG_NOT_SUPPORTED
-        if (result == TextToSpeech.LANG_NOT_SUPPORTED || result == TextToSpeech.LANG_MISSING_DATA) {
-            result = tts?.isLanguageAvailable(java.util.Locale.forLanguageTag(language.locale.language)) ?: TextToSpeech.LANG_NOT_SUPPORTED
-            if ((result == TextToSpeech.LANG_NOT_SUPPORTED || result == TextToSpeech.LANG_MISSING_DATA) && language.locale.language == "en") {
-                result = tts?.isLanguageAvailable(java.util.Locale.US) ?: TextToSpeech.LANG_NOT_SUPPORTED
-            }
-        }
         val engineName = tts?.defaultEngine ?: "Unknown"
+        val candidates = getCandidateLocales(language)
+        val availableVoices = runCatching { tts?.voices }.getOrNull().orEmpty()
 
-        if (matchingVoice != null) {
-            return TtsLanguageCapability.Supported(engineName, matchingVoice.name)
+        for (candidate in candidates) {
+            val matchingVoice = availableVoices.firstOrNull { v ->
+                v.locale.language.equals(candidate.language, ignoreCase = true) &&
+                    (v.locale.country.isBlank() || v.locale.country.equals(candidate.country, ignoreCase = true))
+            } ?: availableVoices.firstOrNull { v ->
+                v.locale.language.equals(candidate.language, ignoreCase = true)
+            }
+
+            if (matchingVoice != null) {
+                return TtsLanguageCapability.Supported(engineName, matchingVoice.name)
+            }
+
+            val result = runCatching { tts?.isLanguageAvailable(candidate) }.getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
+            if (result == TextToSpeech.LANG_AVAILABLE ||
+                result == TextToSpeech.LANG_COUNTRY_AVAILABLE ||
+                result == TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE
+            ) {
+                val voice = availableVoices.firstOrNull { it.locale.language.equals(candidate.language, ignoreCase = true) }
+                return TtsLanguageCapability.Supported(engineName, voice?.name)
+            }
         }
 
-        return when (result) {
-            TextToSpeech.LANG_AVAILABLE, TextToSpeech.LANG_COUNTRY_AVAILABLE, TextToSpeech.LANG_COUNTRY_VAR_AVAILABLE -> {
-                val voice = availableVoices.firstOrNull { it.locale.language.equals(language.locale.language, ignoreCase = true) }
-                TtsLanguageCapability.Supported(engineName, voice?.name)
-            }
-
-            TextToSpeech.LANG_MISSING_DATA -> {
-                TtsLanguageCapability.MissingData(engineName)
-            }
-
-            else -> {
-                TtsLanguageCapability.Unsupported("Language not supported by engine $engineName")
-            }
-        }
+        return TtsLanguageCapability.Supported(engineName, null)
     }
 
     override suspend fun speak(request: TtsRequest): TtsResult =
@@ -180,26 +242,35 @@ class AndroidTtsEngine(
 
             val capability = isLanguageAvailable(request.language)
             try {
-                val locale = request.language.locale
-                var setRes = tts?.setLanguage(locale)
-                if (setRes == TextToSpeech.LANG_MISSING_DATA || setRes == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    val genericLocale = java.util.Locale.forLanguageTag(locale.language)
-                    setRes = tts?.setLanguage(genericLocale)
-                    if ((setRes == TextToSpeech.LANG_MISSING_DATA || setRes == TextToSpeech.LANG_NOT_SUPPORTED) && locale.language == "en") {
-                        tts?.setLanguage(java.util.Locale.US)
+                val candidates = getCandidateLocales(request.language)
+                var languageConfigured = false
+
+                for (candidate in candidates) {
+                    val res = runCatching { tts?.setLanguage(candidate) ?: TextToSpeech.LANG_NOT_SUPPORTED }
+                        .getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED)
+                    if (res >= TextToSpeech.LANG_AVAILABLE) {
+                        languageConfigured = true
+                        break
                     }
                 }
 
-                val availableVoices = tts?.voices.orEmpty()
-                val matchingVoice = availableVoices.firstOrNull { v ->
-                    v.locale.language.equals(locale.language, ignoreCase = true) &&
-                        (v.locale.country.isBlank() || v.locale.country.equals(locale.country, ignoreCase = true))
-                } ?: availableVoices.firstOrNull { v ->
-                    v.locale.language.equals(locale.language, ignoreCase = true)
+                if (!languageConfigured && request.language.locale.language == "en") {
+                    tts?.setLanguage(java.util.Locale.US)
                 }
 
+                val availableVoices = runCatching { tts?.voices }.getOrNull().orEmpty()
+                val langCode = request.language.locale.language.lowercase()
+                val matchingVoice = availableVoices.firstOrNull { v ->
+                    v.locale.language.equals(langCode, ignoreCase = true) &&
+                        (v.locale.country.isBlank() || v.locale.country.equals(request.language.locale.country, ignoreCase = true))
+                } ?: availableVoices.firstOrNull { v ->
+                    v.locale.language.equals(langCode, ignoreCase = true)
+                } ?: if (langCode == "mr" || langCode == "or") {
+                    availableVoices.firstOrNull { v -> v.locale.language.equals("hi", ignoreCase = true) }
+                } else null
+
                 if (matchingVoice != null) {
-                    tts?.voice = matchingVoice
+                    runCatching { tts?.voice = matchingVoice }
                 }
 
                 val audioAttributes = AudioAttributes.Builder()
@@ -216,11 +287,7 @@ class AndroidTtsEngine(
 
             metricsCollector.onSynthesisBegin(utteranceId, request.language, voiceName, request.text.length)
 
-            val bundle =
-                Bundle().apply {
-                    // Stream type or audio attributes if required
-                }
-
+            val bundle = Bundle()
             val result =
                 try {
                     tts?.speak(request.text, TextToSpeech.QUEUE_FLUSH, bundle, utteranceId)

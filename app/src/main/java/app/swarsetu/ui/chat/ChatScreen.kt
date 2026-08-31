@@ -750,10 +750,7 @@ internal fun ChatScreenContent(
                 onReceiveImage = onReceiveImage,
                 onSend = onSend,
                 onTyping = onTyping,
-                // Voice notes are DM/group only: the Nearby room floods unencrypted to everyone in range and
-                // no on-device model can screen speech, so it is the one place unscreenable audio is not
-                // offered. See docs/CONTENT_MODERATION.md.
-                voiceEnabled = !state.isRoom,
+                voiceEnabled = true,
                 voiceRecording = voiceRecording,
                 voicePlayback = voicePlayback,
                 onStartVoice = onStartVoice,
@@ -1224,50 +1221,44 @@ private fun MessageBubble(
                                         ),
                                     style = bodyStyle,
                                 )
-                                val isVoiceOrTranslated =
-                                    row.messageType == app.swarsetu.data.message.MessageEntity.TYPE_TRANSLATED_VOICE ||
-                                        row.messageType == app.swarsetu.data.message.MessageEntity.TYPE_VOICE_NOTE ||
-                                        row.translatedText != null ||
-                                        row.sourceText != null ||
-                                        row.sourceLanguage != null ||
-                                        row.targetLanguage != null
+                                val textToSpeak = if (row.mine) (row.sourceText ?: displayText) else (row.translatedText ?: displayText)
+                                val langToSpeak = if (row.mine) (row.sourceLanguage ?: "en") else (row.targetLanguage ?: row.sourceLanguage ?: "hi")
+                                val badgeLabel = when {
+                                    row.sourceLanguage != null && row.targetLanguage != null && row.sourceLanguage != row.targetLanguage ->
+                                        if (row.mine) "${row.sourceLanguage?.uppercase()} → ${row.targetLanguage?.uppercase()}" else "${row.targetLanguage?.uppercase()}"
+                                    !row.sourceLanguage.isNullOrBlank() -> row.sourceLanguage?.uppercase() ?: "TTS"
+                                    !row.targetLanguage.isNullOrBlank() -> row.targetLanguage?.uppercase() ?: "TTS"
+                                    else -> "TTS"
+                                }
 
-                                if (isVoiceOrTranslated) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = SwarSetuTheme.chatColors.voiceBadgeBackground,
-                                        modifier = Modifier
-                                            .padding(top = 6.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable {
-                                                val textToSpeak = if (row.mine) (row.sourceText ?: displayText) else (row.translatedText ?: displayText)
-                                                val langToSpeak = if (row.mine) (row.sourceLanguage ?: "en") else (row.targetLanguage ?: row.sourceLanguage ?: "hi")
-                                                onReplayTts(textToSpeak, langToSpeak)
-                                            },
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = SwarSetuTheme.chatColors.voiceBadgeBackground,
+                                    modifier = Modifier
+                                        .padding(top = 6.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            onReplayTts(textToSpeak, langToSpeak)
+                                        },
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Filled.PlayArrow,
-                                                contentDescription = stringResource(R.string.chat_play_voice_desc),
-                                                tint = SwarSetuTheme.chatColors.voiceBadgeText,
-                                                modifier = Modifier.size(16.dp),
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                            Text(
-                                                text = if (row.mine) {
-                                                    stringResource(R.string.chat_voice_note_badge, row.sourceLanguage?.uppercase() ?: "AUDIO")
-                                                } else {
-                                                    stringResource(R.string.chat_translated_badge, row.targetLanguage?.uppercase() ?: row.sourceLanguage?.uppercase() ?: "AUDIO")
-                                                },
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = SwarSetuTheme.chatColors.voiceBadgeText,
-                                                ),
-                                            )
-                                        }
+                                        Icon(
+                                            Icons.Filled.PlayArrow,
+                                            contentDescription = stringResource(R.string.chat_play_voice_desc),
+                                            tint = SwarSetuTheme.chatColors.voiceBadgeText,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            text = "Play • $badgeLabel",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = SwarSetuTheme.chatColors.voiceBadgeText,
+                                            ),
+                                        )
                                     }
                                 }
                             }

@@ -49,8 +49,6 @@ enum class TtsLanguage(
          * with fallback or cross-validation against [textFallback].
          */
         fun fromLanguageCode(code: String?, textFallback: String? = null): TtsLanguage? {
-            // If text contains a distinctive Indic or Latin script that doesn't match the code,
-            // prioritize the text's actual script so TTS doesn't attempt cross-script distortion.
             val scriptInferred = textFallback?.let { inferFromText(it) }
             if (code.isNullOrBlank()) return scriptInferred
 
@@ -63,6 +61,12 @@ enum class TtsLanguage(
                     it.displayName.equals(raw, ignoreCase = true) ||
                     it.displayName.equals(clean, ignoreCase = true)
             }
+
+            // If the text is distinctly Latin/English and has no Indic characters, speak English
+            if (scriptInferred == ENGLISH && matched != null && matched != ENGLISH && textFallback?.none { it.code in 0x0900..0x0D7F } == true) {
+                return ENGLISH
+            }
+
             return matched ?: scriptInferred
         }
     }

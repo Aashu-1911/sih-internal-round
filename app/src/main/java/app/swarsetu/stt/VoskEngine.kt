@@ -279,7 +279,7 @@ class VoskEngine(
      * Extract the Vosk model from assets to internal storage. Vosk requires a filesystem path.
      * Already-extracted models are skipped (idempotent).
      */
-    private fun extractModelToInternal(language: SttLanguage): File {
+    private suspend fun extractModelToInternal(language: SttLanguage): File {
         val assetDir = language.assetDir ?: throw SttException.UnsupportedLanguage(language)
         val targetDir = File(context.filesDir, "stt/$assetDir")
 
@@ -291,7 +291,29 @@ class VoskEngine(
         targetDir.mkdirs()
         val assets = context.assets.list(assetDir) ?: emptyArray()
         if (assets.isEmpty()) {
-            throw SttException.ModelLoadError(assetDir)
+            // Attempt to clone from an existing base model (stt-hi or stt-en)
+            val baseDirs = listOf("stt-hi", "stt-en", "stt-gu")
+            var cloned = false
+            for (base in baseDirs) {
+                val candidateDir = File(context.filesDir, "stt/$base")
+                if (candidateDir.exists() && candidateDir.list()?.isNotEmpty() == true) {
+                    try {
+                        candidateDir.copyRecursively(targetDir, overwrite = true)
+                        cloned = true
+                        Log.d(TAG, "Cloned fallback model from $base to $assetDir")
+                        break
+                    } catch (_: Exception) {}
+                }
+            }
+
+            if (!cloned) {
+                // Trigger download via ModelManager
+                val downloaded = modelManager.downloadSttModel(language)
+                if (!downloaded || targetDir.list().isNullOrEmpty()) {
+                    throw SttException.ModelLoadError(assetDir)
+                }
+            }
+            return targetDir
         }
 
         for (name in assets) {

@@ -35,7 +35,7 @@ class VoiceMessageReceiver(
 
         return scope.launch {
             val originalLanguage = (entity.sourceLanguage ?: entity.voiceTextLanguage ?: "en").lowercase()
-            val preferredLanguage = settingsStore.sttLanguageCode.first().lowercase()
+            val preferredLanguage = runCatching { settingsStore.sttLanguageCode.first() }.getOrDefault("en").lowercase()
 
             var textToSpeak = entity.translatedText ?: entity.body
             var languageToSpeak = entity.targetLanguage ?: originalLanguage
@@ -44,7 +44,7 @@ class VoiceMessageReceiver(
             if (originalLanguage != preferredLanguage && (languageToSpeak != preferredLanguage || entity.translatedText == null)) {
                 val inputToTranslate = entity.sourceText ?: entity.body
                 if (inputToTranslate.isNotBlank()) {
-                    val myName = try { settingsStore.displayName.first() } catch (_: Throwable) { null }
+                    val myName = runCatching { settingsStore.displayName.first() }.getOrNull()
                     val translated = if (!myName.isNullOrBlank()) {
                         translatorEngine.translate(
                             text = inputToTranslate,
@@ -68,7 +68,7 @@ class VoiceMessageReceiver(
                             translatedText = textToSpeak,
                             targetLanguage = languageToSpeak,
                         )
-                        messageRepository.save(updatedEntity)
+                        runCatching { messageRepository.save(updatedEntity) }
                     } else {
                         textToSpeak = inputToTranslate
                         languageToSpeak = originalLanguage
@@ -76,10 +76,11 @@ class VoiceMessageReceiver(
                 }
             }
 
-            // Only speak aloud automatically if it was sent as a voice message/note
-            if (isVoice) {
-                val finalLanguage = parseLanguage(languageToSpeak)
-                android.util.Log.d("VoiceMessageReceiver", "Auto-playing inbound voice message ${entity.id} in $finalLanguage: \"$textToSpeak\"")
+            // Speak aloud automatically if it was sent as a voice message/note or auto-play TTS is enabled
+            val autoPlayEnabled = runCatching { settingsStore.autoPlayTts.first() }.getOrDefault(false)
+            if (isVoice || autoPlayEnabled) {
+                val finalLanguage = parseLanguage(languageToSpeak, textToSpeak)
+                android.util.Log.d("VoiceMessageReceiver", "Playing inbound message ${entity.id} in $finalLanguage: \"$textToSpeak\"")
 
                 val request =
                     TtsRequest(
@@ -97,7 +98,7 @@ class VoiceMessageReceiver(
         }
     }
 
-    private fun parseLanguage(languageName: String): TtsLanguage {
-        return TtsLanguage.fromLanguageCode(languageName) ?: TtsLanguage.HINDI
+    private fun parseLanguage(languageName: String, textFallback: String? = null): TtsLanguage {
+        return TtsLanguage.fromLanguageCode(languageName, textFallback) ?: TtsLanguage.HINDI
     }
 }

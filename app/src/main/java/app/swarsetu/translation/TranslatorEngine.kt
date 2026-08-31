@@ -70,87 +70,119 @@ class TranslatorEngine {
         }
     }
 
+    private val COMMON_ENGLISH_WORDS = setOf(
+        "the", "this", "that", "there", "these", "those", "they", "them", "their",
+        "what", "when", "where", "which", "who", "whom", "whose", "why", "how",
+        "please", "yes", "no", "okay", "ok", "good", "hello", "hey", "hi",
+        "today", "tomorrow", "yesterday", "here", "now", "just", "very", "much",
+        "help", "send", "come", "urgent", "danger", "safe", "need", "call",
+        "is", "am", "are", "was", "were", "be", "been", "have", "has", "had",
+        "do", "does", "did", "can", "could", "shall", "should", "will", "would", "may", "might", "must",
+        "i", "you", "he", "she", "it", "we", "all", "some", "any", "every",
+    )
+
     private val ENTITY_REGEX = Regex(
-        """(@\w+)|(https?://\S+)|(\b\d{3,}\b)|(\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b)|(\bSwarSetu\b)|(\biTantra\b)|(\bISRO\b)""",
+        """(@\w+)|(https?://\S+)|(\b\d{2,}\b)|(\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b)|(\bSwarSetu\b)|(\biTantra\b)|(\bISRO\b)|(\bNDRF\b)|(\bSDRF\b)|(\bSOS\b)""",
         RegexOption.IGNORE_CASE
     )
 
     private val NAME_INTRODUCTION_PATTERNS = listOf(
-        Regex("""(?i)(?:मेरा\s+नाम|नाम\s+है)\s+([^\s,।!?]+)"""),
-        Regex("""(?i)(?:मैं|मै)\s+([^\s,।!?]+)\s+(?:हूँ|हु|हूं)"""),
-        Regex("""(?i)(?:મારું\s+નામ|મારુ\s+નામ)\s+([^\s,।!?]+)"""),
-        Regex("""(?i)(?:હું|હુ)\s+([^\s,।!?]+)\s+છું"""),
-        Regex("""(?i)(?:माझे\s+नाव|नाव\s+आहे)\s+([^\s,।!?]+)"""),
-        Regex("""(?i)(?:আমার\s+নাম)\s+([^\s,।!?]+)"""),
-        Regex("""(?i)(?:என்\s+பெயர்)\s+([^\s,।!?]+)"""),
-        Regex("""(?i)(?:నా\s+పేరు)\s+([^\s,।!?]+)"""),
-        Regex("""(?i)(?:ನನ್ನ\s+ಹೆಸರು)\s+([^\s,।!?]+)"""),
-        Regex("""(?i)(?:എന്റെ\s+പേര്)\s+([^\s,।!?]+)"""),
-        Regex("""(?i)(?:my\s+name\s+is|i\s+am|this\s+is)\s+([a-zA-Z]+)"""),
+        Regex("""(?i)(?:मेरा\s+नाम|नाम\s+है|माझे\s+नाव|नाव\s+आहे)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:मैं|मै|હું|હુ)\s+([^\s,।!?]+)\s+(?:हूँ|हु|हूं|છું)"""),
+        Regex("""(?i)(?:મારું\s+નામ|મારુ\s+નામ|আমার\s+নাম)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:என்\s+பெயர்|నా\s+పేరు|ನನ್ನ\s+ಹೆಸರು|എന്റെ\s+പേര്|ମୋର\s+ନାମ)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)(?:my\s+name\s+is|i\s+am|this\s+is|call\s+me)\s+([a-zA-Z]+)"""),
+        Regex("""(?i)(?:Dr\.|Mr\.|Mrs\.|Ms\.|Shri|Smt|Sir|Madam|श्री|श्रीमती|डॉ|डॉक्टर|मिस्टर|मिस)\s+([^\s,।!?]+)"""),
+        Regex("""(?i)([^\s,।!?]+)\s+(?:जी|भाई|साहेब|सर|मैडम|भाईजान)"""),
     )
 
     private data class MaskedText(
         val text: String,
-        val replacements: Map<String, String>
+        val replacements: Map<String, String>,
+        val tagToOriginal: Map<String, String>,
     )
 
     private fun maskEntities(rawText: String, customProtectedNouns: List<String> = emptyList()): MaskedText {
         val replacements = mutableMapOf<String, String>()
+        val tagToOriginal = mutableMapOf<String, String>()
         var counter = 0
         var processed = rawText
 
         val allNouns = customProtectedNouns.filter { it.isNotBlank() }.toMutableList()
 
-        // Extract names from conversational introduction patterns
+        // 1. Extract names from conversational introduction and honorific patterns
         for (pattern in NAME_INTRODUCTION_PATTERNS) {
-            val match = pattern.find(rawText)
-            if (match != null && match.groupValues.size > 1) {
-                val candidateName = match.groupValues[1].trim()
-                if (candidateName.length >= 2 && !allNouns.contains(candidateName)) {
-                    allNouns.add(candidateName)
+            val matches = pattern.findAll(rawText)
+            for (match in matches) {
+                if (match.groupValues.size > 1) {
+                    val candidateName = match.groupValues[1].trim()
+                    if (candidateName.length >= 2 && !allNouns.contains(candidateName)) {
+                        allNouns.add(candidateName)
+                    }
                 }
             }
         }
 
-        // 1. Shield custom and dynamically extracted proper nouns
-        for (noun in allNouns.distinct()) {
+        // 2. Extract capitalized proper nouns from English / Latin text (e.g. Ashish, Mumbai, Pune)
+        val capitalizedWords = Regex("""\b[A-Z][a-zA-Z0-9_]{1,25}\b""").findAll(rawText)
+        for (capMatch in capitalizedWords) {
+            val word = capMatch.value
+            if (word.lowercase() !in COMMON_ENGLISH_WORDS && !allNouns.contains(word)) {
+                allNouns.add(word)
+            }
+        }
+
+        // 3. Shield custom and dynamically extracted proper nouns
+        for (noun in allNouns.distinct().sortedByDescending { it.length }) {
             val unicodeBoundaryRegex = Regex("""(?i)(?<=^|[\s\p{Punct}])${Regex.escape(noun)}(?=$|[\s\p{Punct}])""")
             if (unicodeBoundaryRegex.containsMatchIn(processed)) {
-                val placeholder = "⟦P${counter}⟧"
+                val placeholder = "__N${counter}__"
                 val match = unicodeBoundaryRegex.find(processed)
                 if (match != null) {
                     replacements[placeholder] = match.value
+                    tagToOriginal[counter.toString()] = match.value
                     processed = unicodeBoundaryRegex.replace(processed, placeholder)
                     counter++
                 }
             } else if (processed.contains(noun, ignoreCase = true)) {
-                val placeholder = "⟦P${counter}⟧"
+                val placeholder = "__N${counter}__"
                 replacements[placeholder] = noun
+                tagToOriginal[counter.toString()] = noun
                 processed = processed.replace(noun, placeholder, ignoreCase = true)
                 counter++
             }
         }
 
-        // 2. Shield URLs, emails, mentions, numbers, and technical brand names
+        // 4. Shield URLs, emails, mentions, numbers, and technical brand names
         processed = ENTITY_REGEX.replace(processed) { matchResult ->
-            val placeholder = "⟦P${counter}⟧"
+            val placeholder = "__N${counter}__"
             replacements[placeholder] = matchResult.value
+            tagToOriginal[counter.toString()] = matchResult.value
             counter++
             placeholder
         }
 
-        return MaskedText(processed, replacements)
+        return MaskedText(processed, replacements, tagToOriginal)
     }
 
-    private fun unmaskEntities(translatedText: String, replacements: Map<String, String>): String {
+    private fun unmaskEntities(translatedText: String, tagToOriginal: Map<String, String>): String {
         var result = translatedText
-        for ((placeholder, original) in replacements) {
-            val tokenKey = placeholder.removePrefix("⟦").removeSuffix("⟧")
-            val lenientRegex = Regex("""⟦\s*${Regex.escape(tokenKey)}\s*⟧|\[\s*${Regex.escape(tokenKey)}\s*\]|\(${Regex.escape(tokenKey)}\)""")
+        for ((tagId, original) in tagToOriginal) {
+            val lenientRegex = Regex(
+                """(?:_{1,3}\s*(?:N|n|ID|id|P|p|entity|ENTITY|NOUN|noun)\s*[_–-]?\s*${Regex.escape(tagId)}\s*_{1,3})|""" +
+                    """(?:⟦\s*(?:N|n|P|p|ID|id)?\s*${Regex.escape(tagId)}\s*⟧)|""" +
+                    """(?:\[\s*(?:N|n|P|p|ID|id)?\s*${Regex.escape(tagId)}\s*\])|""" +
+                    """(?:\(\s*(?:N|n|P|p|ID|id)?\s*${Regex.escape(tagId)}\s*\))|""" +
+                    """(?:\b(?:N|n|ID|id|P|p|entity|ENTITY)_?${Regex.escape(tagId)}\b)|""" +
+                    """(?:(?:एन|पि|पी|પી|பி|పి|ಪಿ|পি|ପି)\s*${Regex.escape(tagId)})""",
+                RegexOption.IGNORE_CASE,
+            )
             result = if (lenientRegex.containsMatchIn(result)) {
                 lenientRegex.replace(result, original)
             } else {
-                result.replace(placeholder, original)
+                result.replace("__N${tagId}__", original, ignoreCase = true)
+                    .replace("⟦P${tagId}⟧", original, ignoreCase = true)
+                    .replace("[P${tagId}]", original, ignoreCase = true)
             }
         }
         return result
@@ -179,6 +211,26 @@ class TranslatorEngine {
             .replace(Regex("""\s+([.,!?।])"""), "$1")
             .replace(Regex("""\s{2,}"""), " ")
             .trim()
+    }
+
+    /**
+     * Infers ML Kit language code from Unicode script characteristics of the input text.
+     */
+    fun detectLanguageFromScript(text: String): String? {
+        for (char in text) {
+            when (char.code) {
+                in 0x0A80..0x0AFF -> return TranslateLanguage.GUJARATI
+                in 0x0980..0x09FF -> return TranslateLanguage.BENGALI
+                in 0x0B80..0x0BFF -> return TranslateLanguage.TAMIL
+                in 0x0C00..0x0C7F -> return TranslateLanguage.TELUGU
+                in 0x0C80..0x0CFF -> return TranslateLanguage.KANNADA
+                in 0x0900..0x097F -> return TranslateLanguage.HINDI
+            }
+        }
+        if (text.any { it in 'a'..'z' || it in 'A'..'Z' } && text.none { it.code in 0x0900..0x0D7F }) {
+            return TranslateLanguage.ENGLISH
+        }
+        return null
     }
 
     private suspend fun translateDirect(
@@ -218,6 +270,7 @@ class TranslatorEngine {
         return if (source == TranslateLanguage.ENGLISH || target == TranslateLanguage.ENGLISH) {
             translateDirect(text, source, target)
         } else {
+            // Pivot via English with robust intermediate check
             val englishIntermediate = translateDirect(text, source, TranslateLanguage.ENGLISH)
             if (englishIntermediate.isNotBlank() && englishIntermediate != text) {
                 translateDirect(englishIntermediate, TranslateLanguage.ENGLISH, target)
@@ -261,13 +314,21 @@ class TranslatorEngine {
         if (text.isBlank()) return text
         if (sourceLang == targetLang) return text
 
-        val source = normalizeToLanguageTag(sourceLang) ?: return text
+        var detectedSource = normalizeToLanguageTag(sourceLang)
         val target = normalizeToLanguageTag(targetLang) ?: return text
+
+        // Reconcile source language against actual Unicode script to prevent cross-language distortion
+        val scriptDetected = detectLanguageFromScript(text)
+        if (scriptDetected != null && (detectedSource == null || (detectedSource == TranslateLanguage.ENGLISH && scriptDetected != TranslateLanguage.ENGLISH))) {
+            detectedSource = scriptDetected
+        }
+        val source = detectedSource ?: scriptDetected ?: TranslateLanguage.ENGLISH
+
         if (source == target) return text
 
         return try {
             // 1. Mask proper nouns, mentions, URLs, numbers
-            val (masked, replacements) = maskEntities(text, protectedNouns)
+            val (masked, _, tagToOriginal) = maskEntities(text, protectedNouns)
 
             // 2. Preprocess sentence structure
             val preprocessed = preprocessText(masked, source)
@@ -276,7 +337,7 @@ class TranslatorEngine {
             val translated = translatePassage(preprocessed, source, target)
 
             // 4. Restore preserved entities and clean up syntax
-            val unmasked = unmaskEntities(translated, replacements)
+            val unmasked = unmaskEntities(translated, tagToOriginal)
             postprocessText(unmasked)
         } catch (e: Exception) {
             val cause = e.message?.lowercase() ?: ""

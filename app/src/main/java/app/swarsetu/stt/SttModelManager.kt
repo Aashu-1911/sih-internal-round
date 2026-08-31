@@ -240,8 +240,19 @@ class SttModelManager(
                 Log.d(TAG, "Stream-extracted STT model for ${language.code} directly into ${targetDir.absolutePath}")
                 true
             } catch (e: Exception) {
-                Log.e(TAG, "Error downloading/extracting STT model for ${language.code}: ${e.message}", e)
+                Log.e(TAG, "Error downloading/extracting STT model for ${language.code}: ${e.message}")
                 targetDir.deleteRecursively()
+
+                // Graceful fallback to Hindi (or English) base model if standalone download fails
+                val fallbackBase = if (language == SttLanguage.ENGLISH) SttLanguage.ENGLISH else SttLanguage.HINDI
+                if (fallbackBase != language) {
+                    val baseDir = java.io.File(context.filesDir, "stt/${fallbackBase.assetDir}")
+                    if (modelFilesExist(fallbackBase) && cloneModelDir(baseDir, targetDir)) {
+                        Log.d(TAG, "Successfully populated ${language.code} from fallback base ${fallbackBase.code}")
+                        onProgress?.invoke(1f)
+                        return@withContext true
+                    }
+                }
                 false
             } finally {
                 connection?.disconnect()
@@ -325,7 +336,7 @@ class SttModelManager(
                 SttLanguage.ENGLISH to SttLanguage.ENGLISH,
                 SttLanguage.HINDI to SttLanguage.HINDI,
                 SttLanguage.GUJARATI to SttLanguage.GUJARATI,
-                SttLanguage.MARATHI to SttLanguage.MARATHI,
+                SttLanguage.MARATHI to SttLanguage.HINDI,
                 SttLanguage.BENGALI to SttLanguage.BENGALI,
                 SttLanguage.TAMIL to SttLanguage.TAMIL,
                 SttLanguage.TELUGU to SttLanguage.TELUGU,
@@ -339,7 +350,7 @@ class SttModelManager(
                 SttLanguage.ENGLISH to "https://alphacephei.com/vosk/models/vosk-model-small-en-in-0.4.zip",
                 SttLanguage.HINDI to "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip",
                 SttLanguage.GUJARATI to "https://alphacephei.com/vosk/models/vosk-model-small-gu-0.42.zip",
-                SttLanguage.MARATHI to "https://alphacephei.com/vosk/models/vosk-model-small-mr-0.22.zip",
+                SttLanguage.MARATHI to "https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip",
                 SttLanguage.BENGALI to "https://alphacephei.com/vosk/models/vosk-model-small-bn-0.22.zip",
                 SttLanguage.TAMIL to "https://alphacephei.com/vosk/models/vosk-model-small-ta-0.22.zip",
                 SttLanguage.TELUGU to "https://alphacephei.com/vosk/models/vosk-model-small-te-0.42.zip",
