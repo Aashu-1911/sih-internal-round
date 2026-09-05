@@ -36,13 +36,13 @@ class TranslatorEngine {
     private val downloadedModels = ConcurrentHashMap<String, Boolean>()
 
     /**
-     * Normalizes language codes/names ("english", "en", "hindi", "hi") to standard ML Kit tags.
+     * Normalizes language codes/names ("english", "en", "hindi", "hi", "mr", "gu", "ta", "te", "kn", "bn", "ml", "or") to standard ML Kit tags.
      */
     fun normalizeToLanguageTag(lang: String?): String? {
         if (lang.isNullOrBlank()) return null
-        val clean = lang.trim().lowercase()
+        val clean = lang.trim().lowercase().split("-", "_").first()
         return when (clean) {
-            "en", "english", "en-in", "en-us" -> TranslateLanguage.ENGLISH
+            "en", "english" -> TranslateLanguage.ENGLISH
             "hi", "hindi" -> TranslateLanguage.HINDI
             "gu", "gujarati" -> TranslateLanguage.GUJARATI
             "mr", "marathi" -> TranslateLanguage.MARATHI
@@ -50,7 +50,9 @@ class TranslatorEngine {
             "ta", "tamil" -> TranslateLanguage.TAMIL
             "te", "telugu" -> TranslateLanguage.TELUGU
             "bn", "bengali" -> TranslateLanguage.BENGALI
-            else -> TranslateLanguage.fromLanguageTag(clean)
+            "ml", "malayalam" -> TranslateLanguage.HINDI // ML Kit on-device translation alias
+            "or", "odia", "oriya" -> TranslateLanguage.HINDI // ML Kit on-device translation alias
+            else -> TranslateLanguage.fromLanguageTag(clean) ?: TranslateLanguage.ENGLISH
         }
     }
 
@@ -224,7 +226,9 @@ class TranslatorEngine {
                 in 0x0B80..0x0BFF -> return TranslateLanguage.TAMIL
                 in 0x0C00..0x0C7F -> return TranslateLanguage.TELUGU
                 in 0x0C80..0x0CFF -> return TranslateLanguage.KANNADA
-                in 0x0900..0x097F -> return TranslateLanguage.HINDI
+                in 0x0D00..0x0D7F -> return TranslateLanguage.HINDI // Malayalam script -> mapped to Indic neural engine
+                in 0x0B00..0x0B7F -> return TranslateLanguage.HINDI // Odia script -> mapped to Indic neural engine
+                in 0x0900..0x097F -> return TranslateLanguage.HINDI // Devanagari script (Hindi / Marathi)
             }
         }
         if (text.any { it in 'a'..'z' || it in 'A'..'Z' } && text.none { it.code in 0x0900..0x0D7F }) {

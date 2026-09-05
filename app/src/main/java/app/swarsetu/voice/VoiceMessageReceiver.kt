@@ -34,7 +34,9 @@ class VoiceMessageReceiver(
             entity.voiceTextLanguage != null
 
         return scope.launch {
-            val originalLanguage = (entity.sourceLanguage ?: entity.voiceTextLanguage ?: "en").lowercase()
+            val inputToTranslate = entity.sourceText ?: entity.body
+            val detectedScriptLang = runCatching { translatorEngine.detectLanguageFromScript(inputToTranslate) }.getOrNull()
+            val originalLanguage = (entity.sourceLanguage ?: entity.voiceTextLanguage ?: detectedScriptLang ?: "en").lowercase()
             val preferredLanguage = runCatching { settingsStore.sttLanguageCode.first() }.getOrDefault("en").lowercase()
 
             var textToSpeak = entity.translatedText ?: entity.body
@@ -42,7 +44,6 @@ class VoiceMessageReceiver(
 
             // If the message has not been translated to receiver's preferred language, translate now
             if (originalLanguage != preferredLanguage && (languageToSpeak != preferredLanguage || entity.translatedText == null)) {
-                val inputToTranslate = entity.sourceText ?: entity.body
                 if (inputToTranslate.isNotBlank()) {
                     val myName = runCatching { settingsStore.displayName.first() }.getOrNull()
                     val translated = if (!myName.isNullOrBlank()) {
